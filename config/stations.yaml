@@ -1,0 +1,50 @@
+# In-situ stations. Coordinates marked coord_verified: false are approximate positions
+# read off public maps (±1–2 km). Replace them with the official values from the
+# Kanto Regional Bureau annual report or the data files before running real matchups;
+# for a 300 m OLCI pixel a 1 km error already matters.
+stations:
+  kemigawa_oki:
+    name_ja: 検見川沖
+    name_en: Kemigawa offshore
+    operator: MLIT Kanto Regional Bureau (monitoring post)
+    bay: tokyo
+    lat: 35.61
+    lon: 140.03
+    coord_verified: false
+    params: [water_temp, salinity, chl, turbidity, do, ph]
+  chiba_port_beacon1:
+    name_ja: 千葉港口第一号灯標
+    name_en: Chiba Port entrance beacon No.1
+    operator: MLIT Kanto Regional Bureau (monitoring post)
+    bay: tokyo
+    lat: 35.53
+    lon: 140.01
+    coord_verified: false
+    params: [water_temp, salinity, chl, turbidity, do, ph]
+  kawasaki_island:
+    name_ja: 川崎人工島
+    name_en: Kawasaki artificial island (Kaze-no-To)
+    operator: MLIT Kanto Regional Bureau (monitoring post)
+    bay: tokyo
+    lat: 35.49
+    lon: 139.83
+    coord_verified: false
+    params: [water_temp, salinity, chl, turbidity, do, ph]
+  urayasu_oki:
+    name_ja: 浦安沖
+    name_en: Urayasu offshore
+    operator: MLIT Kanto Regional Bureau (monitoring post)
+    bay: tokyo
+    lat: 35.60
+    lon: 139.92
+    coord_verified: false
+    params: [water_temp, salinity, chl, turbidity, do, ph]
+  chiba_light_beacon_jcg:
+    name_ja: 千葉灯標
+    name_en: Chiba light beacon (Japan Coast Guard)
+    operator: Japan Coast Guard (hourly profile, 1 m step, since 2003)
+    bay: tokyo
+    lat: 35.56
+    lon: 140.04
+    coord_verified: false
+    params: [water_temp, salinity, chl, turbidity, do]

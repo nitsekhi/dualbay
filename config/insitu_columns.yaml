@@ -1,0 +1,40 @@
+# How to recognise columns in downloaded in-situ files (CSV or Excel, Japanese or English headers).
+# A column is assigned to a parameter when its header contains one of the keywords
+# (case-insensitive, full-width characters normalised). First match wins, so list
+# specific keywords before generic ones.
+datetime:
+  keywords: ["日時", "観測日時", "年月日時", "datetime", "date_time", "time"]
+date:
+  keywords: ["年月日", "日付", "date"]
+hour:
+  keywords: ["時刻", "時", "hour"]
+depth:
+  keywords: ["水深", "深度", "depth"]   # not 層 (layer): 上層水温 is a temperature column, not a depth column
+station:
+  keywords: ["地点", "観測点", "station"]
+
+params:
+  chl:
+    keywords: ["クロロフィル", "ｸﾛﾛﾌｨﾙ", "chl", "chlorophyll"]
+    unit: "ug/L"
+    valid_range: [0, 500]
+  turbidity:
+    keywords: ["濁度", "turbidity", "ntu", "ftu"]
+    unit: "FTU"
+    valid_range: [0, 1000]
+  do:
+    keywords: ["溶存酸素", "do(", "do[", "dissolved oxygen", "do_mg"]
+    unit: "mg/L"
+    valid_range: [0, 20]
+  water_temp:
+    keywords: ["水温", "water temp", "wtemp", "temperature"]
+    unit: "degC"
+    valid_range: [-2, 40]
+  salinity:
+    keywords: ["塩分", "salinity"]
+    unit: "PSU"
+    valid_range: [0, 40]
+  ph:
+    keywords: ["ph"]
+    unit: "-"
+    valid_range: [6, 10]

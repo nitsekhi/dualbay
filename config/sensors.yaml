@@ -1,0 +1,34 @@
+# Satellite sources for the scene inventory.
+# provider: cdse = Copernicus Data Space STAC, earthdata = NASA CMR via earthaccess,
+#           manual = portal without a public search API (inventory is filled from exported lists).
+matchup_window_hours: 3
+
+sensors:
+  s3_olci:
+    name: Sentinel-3 OLCI (Level-2 water, full resolution)
+    provider: cdse
+    collection: sentinel-3-olci-2-wfr-ntc
+    resolution_m: 300
+  s2_msi:
+    name: Sentinel-2 MSI (Level-1C, for ACOLITE)
+    provider: cdse
+    collection: sentinel-2-l1c
+    resolution_m: 10
+    max_cloud_pct: 60
+  pace_oci:
+    name: PACE OCI (Level-2 apparent optical properties)
+    provider: earthdata
+    short_name: PACE_OCI_L2_AOP
+    resolution_m: 1200
+  gcom_c_sgli:
+    name: GCOM-C SGLI (JAXA G-Portal)
+    provider: manual
+    resolution_m: 250
+  prisma:
+    name: PRISMA (ASI)
+    provider: manual
+    resolution_m: 30
+  hisui:
+    name: HISUI (Tellus)
+    provider: manual
+    resolution_m: 30

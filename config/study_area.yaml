@@ -1,0 +1,28 @@
+# Study area: Tokyo Bay + Sagami Bay.
+# Zones are coarse lon/lat boxes (WGS84). They overlap land on purpose:
+# `dualbay study-area --coastline <file>` clips them to water.
+# Boundaries follow the usual split of Tokyo Bay at the Futtsu–Kannonzaki line (~35.25 N).
+crs: "EPSG:4326"
+bbox: [139.05, 34.95, 140.15, 35.72]   # [lon_min, lat_min, lon_max, lat_max], both bays
+
+zones:
+  tokyo_inner:
+    bay: tokyo
+    description: Inner Tokyo Bay, north of the Futtsu–Kannonzaki line; eutrophic, river-fed (Tama, Edo, Ara)
+    bbox: [139.60, 35.25, 140.15, 35.72]
+  uraga_channel:
+    bay: tokyo
+    description: Uraga Channel, the bay mouth; mixing of bay water with outer waters
+    bbox: [139.72, 35.00, 139.95, 35.25]
+  miura_transition:
+    bay: both
+    description: Waters around the tip of the Miura Peninsula; transition between the two bays
+    bbox: [139.55, 35.05, 139.72, 35.30]
+  sagami_coastal:
+    bay: sagami
+    description: Shonan coast and river mouths (Sagami, Sakawa); runoff plumes
+    bbox: [139.05, 35.20, 139.55, 35.33]
+  sagami_open:
+    bay: sagami
+    description: Central and outer Sagami Bay; open to the Pacific, Kuroshio influence
+    bbox: [139.05, 34.95, 139.55, 35.20]
