@@ -77,6 +77,32 @@ keeps what it already read. Each figure also gets a CSV with the numbers behind 
 `--max-cloud` filters on the cloud cover of the whole granule (a wide swath), not of the bay;
 the per-zone clear fraction in `zone_spectra.csv` is the real measure.
 
+## Full chain (after the PACE first look)
+
+```bash
+# 1. put everything into the store (idempotent; re-run any time)
+dualbay load --insitu data/processed/insitu.csv --scenes data/processed/scenes.csv \
+             --zone-spectra data/processed/pace/zone_spectra.csv \
+             --station-values data/processed/pace/station_values.csv \
+             --matchups data/processed/matchups.csv
+
+# 2. baselines (tier 1–2), uncertainty model (tier 3), temporal + spatial transfer → results/
+dualbay analyze --param chl --train-bay tokyo
+
+# 3. RQ3 groundwork from in-situ alone: chl → bottom DO lags, hypoxia events, lead times
+dualbay lag --insitu data/processed/insitu.csv
+
+# 4. Power BI star schema + measures → data/processed/powerbi/
+dualbay export
+
+# 0. no data yet? run the whole chain on synthetic data (≈2 min) → data/demo/
+dualbay demo
+```
+
+Docs: `docs/ARCHITECTURE.md` (data flow, design decisions, error handling, known limits),
+`docs/METHODS.md` (report-ready methods text). Dashboard: load `data/processed/powerbi/*.csv`
+into Power BI, create the relationships listed at the top of `measures.dax`, paste the measures.
+
 ## Layout
 
 ```
@@ -90,10 +116,19 @@ src/dualbay/
   insitu.py            CSV/Excel → long table (station, time JST, layer, depth, param, value, unit, qc)
   inventory.py         scene search (CDSE STAC, Earthdata) and manual scene lists
   matchup.py           scene–station pairing, summary, Bailey & Werdell (2006) window statistics
-  pace.py              PACE OCI L2: remote subset reading, zone spectra, station values
+  pace.py              PACE OCI L2: remote subset reading, zone spectra, pixel budget, station values
+  flags.py             NASA l2_flags: standard mask, per-zone flag fractions (ABSAER, LOWLW, ...)
   figures.py           first-look figures from the PACE tables
+  db.py / schema.sql   SQLite star schema and idempotent loaders
+  baseline.py          OCx, CI, 3-band, NDCI, Nechad, Dogliotti; local recalibration; metrics incl. MdSA, PICP
+  owt.py               optical water types (k-means, silhouette), novelty flag, coverage table
+  models.py            random-forest retrieval with per-pixel 68 % interval and calibration check
+  transfer.py          temporal holdout, static vs adaptive, spatial transfer, learning curve
+  lag.py               surface Chl-a vs bottom DO lags, hypoxia events, lead time, blue-tide index
+  export.py            Power BI tables + DAX measures
+  demo.py              synthetic end-to-end run
   cli.py               `dualbay` command
-tests/                 parser, matchups, window statistics, zones
+tests/                 12 tests: parser, matchups, PACE reader, flags, store, baselines, OWT, models, transfer, lag, export
 data/                  raw/ and processed/ (git-ignored)
 ```
 

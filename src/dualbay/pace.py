@@ -15,18 +15,26 @@ Output (long tables, CSV):
 
 from __future__ import annotations
 
+import logging
+import time
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from . import config, matchup, study_area
+from . import config, flags, matchup, study_area
+
+log = logging.getLogger(__name__)
+RETRIES = 3
+RETRY_WAIT_S = 20
 
 AOP = "PACE_OCI_L2_AOP"
 BGC = "PACE_OCI_L2_BGC"
-LAND_BIT = 1 << 1          # l2_flags bit 1 = LAND
+LAND_BIT = 1 << flags.L2_FLAG_BITS["LAND"]
 REF_WL = 555.0             # band used to decide whether a pixel is valid
+BLUE_WL = (412.0, 443.0)   # bands checked for negative Rrs (atmospheric over-correction, Higa et al. 2024)
 MAX_STATION_DIST_KM = 1.5  # nearest pixel must be within this distance (OCI pixel ~1.2 km)
+MASK_LEVEL = "standard"    # flags.STANDARD_MASK; set "water" to keep more (riskier) pixels
 
 
 # ---------- search ----------
@@ -125,15 +133,49 @@ def granule_time(name: str) -> pd.Timestamp | None:
 # ---------- extraction ----------
 
 def _water_valid(sub: dict, ref_idx: int | None):
+    """water = not land; valid = water and passes the NASA standard mask and has a finite value."""
     shape = sub["lat"].shape
-    water = np.ones(shape, bool) if sub["flags"] is None else (sub["flags"] & LAND_BIT) == 0
+    fl = sub["flags"]
+    water = np.ones(shape, bool) if fl is None else ~flags.is_set(fl, "LAND")
+    good = flags.good_pixels(fl, shape, MASK_LEVEL)
     if "Rrs" in sub and ref_idx is not None:
-        valid = water & np.isfinite(sub["Rrs"][..., ref_idx])
+        valid = water & good & np.isfinite(sub["Rrs"][..., ref_idx])
     elif "chlor_a" in sub:
-        valid = water & np.isfinite(sub["chlor_a"])
+        valid = water & good & np.isfinite(sub["chlor_a"])
     else:
-        valid = water
+        valid = water & good
     return water, valid
+
+
+def pixel_budget(sub: dict, zones: dict | None = None) -> pd.DataFrame:
+    """How many usable pixels each zone really has, and why pixels are lost.
+
+    Columns: zone, n_water, n_good (standard mask), frac_good, frac_<flag> for the diagnostic flags,
+    and, when Rrs is present, frac_neg_412 / frac_neg_443 among good pixels.
+    Closes the 'PACE resolution and adjacency' gap: inner Tokyo Bay is ~20 km wide, so a 1.2 km
+    pixel grid leaves few pixels free of land adjacency and stray light.
+    """
+    zones = zones or study_area.zones()
+    wl = sub["wavelength"]
+    fl = sub["flags"]
+    shape = sub["lat"].shape
+    water = np.ones(shape, bool) if fl is None else ~flags.is_set(fl, "LAND")
+    good = water & flags.good_pixels(fl, shape, MASK_LEVEL)
+    rows = []
+    for zid, z in zones.items():
+        x0, y0, x1, y1 = z["geometry"].bounds
+        inz = (sub["lon"] >= x0) & (sub["lon"] <= x1) & (sub["lat"] >= y0) & (sub["lat"] <= y1)
+        n_water, n_good = int((inz & water).sum()), int((inz & good).sum())
+        row = {"zone": zid, "bay": z["bay"], "n_water": n_water, "n_good": n_good,
+               "frac_good": n_good / n_water if n_water else np.nan}
+        row.update(flags.flag_fractions(fl, inz & water) if fl is not None else {})
+        if "Rrs" in sub and wl is not None and n_good:
+            for b in BLUE_WL:
+                k = int(np.nanargmin(np.abs(wl - b)))
+                v = sub["Rrs"][..., k][inz & good]
+                row[f"frac_neg_{int(b)}"] = float(np.mean(v < 0)) if v.size else np.nan
+        rows.append(row)
+    return pd.DataFrame(rows)
 
 
 def zone_spectra(sub: dict, granule: str, zones: dict | None = None) -> pd.DataFrame:
@@ -143,13 +185,15 @@ def zone_spectra(sub: dict, granule: str, zones: dict | None = None) -> pd.DataF
     ref_idx = int(np.nanargmin(np.abs(wl - REF_WL))) if wl is not None else None
     water, valid = _water_valid(sub, ref_idx)
     t = granule_time(granule)
+    budget = pixel_budget(sub, zones).set_index("zone")
     rows = []
     for zid, z in zones.items():
         x0, y0, x1, y1 = z["geometry"].bounds
         inz = (sub["lon"] >= x0) & (sub["lon"] <= x1) & (sub["lat"] >= y0) & (sub["lat"] <= y1)
         n_water, n_valid = int((inz & water).sum()), int((inz & valid).sum())
+        diag = {c: budget.loc[zid, c] for c in budget.columns if c.startswith("frac_")}
         base = {"time": t, "granule": granule, "zone": zid, "bay": z["bay"], "n_water": n_water,
-                "n_valid": n_valid, "valid_frac": n_valid / n_water if n_water else 0.0}
+                "n_valid": n_valid, "valid_frac": n_valid / n_water if n_water else 0.0, **diag}
         if n_valid == 0 or "Rrs" not in sub:
             rows.append({**base, "wavelength": np.nan, "rrs_median": np.nan, "rrs_p25": np.nan, "rrs_p75": np.nan})
             continue
@@ -242,14 +286,40 @@ def process(start: str, end: str, short_name: str = AOP, max_cloud: float | None
     bbox = config.load("study_area")["bbox"]
     variables = ("Rrs",) if short_name == AOP else ("chlor_a",)
     zs, ss = [], []
-    for i, (g, fobj) in enumerate(zip(results, earthaccess.open(results)), 1):
-        name = g["umm"]["GranuleUR"]
+    done = set()
+    resume = out / f"zone_spectra{suffix}.csv"
+    if resume.exists():  # resume an interrupted run
         try:
-            ok = _process_one(fobj, name, bbox, variables, zs, ss)
-            print(f"[{i}/{len(results)}] {'✓' if ok else '– outside bbox'} {name}")
-        except Exception as err:  # one broken granule must not stop a long run
-            print(f"[{i}/{len(results)}] ✗ {name}: {err}")
+            prev = pd.read_csv(resume)
+            done = set(prev["granule"].unique())
+            zs.append(prev)
+            if (out / f"station_values{suffix}.csv").exists():
+                ss.append(pd.read_csv(out / f"station_values{suffix}.csv"))
+            log.info("resuming: %d granules already processed", len(done))
+        except Exception as err:
+            log.warning("could not read previous output, starting fresh: %s", err)
+    failures = []
+    for i, g in enumerate(results, 1):
+        name = g["umm"]["GranuleUR"]
+        if name in done:
+            continue
+        for attempt in range(1, RETRIES + 1):
+            try:
+                fobj = earthaccess.open([g])[0]
+                ok = _process_one(fobj, name, bbox, variables, zs, ss)
+                print(f"[{i}/{len(results)}] {'✓' if ok else '– outside bbox'} {name}")
+                break
+            except (OSError, IOError, RuntimeError, KeyError, ValueError) as err:
+                if attempt < RETRIES:
+                    log.warning("%s attempt %d failed (%s); retrying in %ds", name, attempt, err, RETRY_WAIT_S)
+                    time.sleep(RETRY_WAIT_S)
+                else:
+                    print(f"[{i}/{len(results)}] ✗ {name}: {err}")
+                    failures.append({"granule": name, "error": str(err)})
         if i % 10 == 0:
             _save(zs, out / f"zone_spectra{suffix}.csv")
             _save(ss, out / f"station_values{suffix}.csv")
+    if failures:
+        pd.DataFrame(failures).to_csv(out / f"failed_granules{suffix}.csv", index=False)
+        log.warning("%d granules failed; see failed_granules%s.csv", len(failures), suffix)
     return _save(zs, out / f"zone_spectra{suffix}.csv"), _save(ss, out / f"station_values{suffix}.csv")
