@@ -56,6 +56,22 @@ def cmd_matchups(a):
     print(s.to_string(index=False))
 
 
+def cmd_pace(a):
+    from . import pace
+
+    if a.files:
+        pace.process_files(a.files, a.out)
+    else:
+        pace.process(a.start, a.end, pace.AOP if a.product == "aop" else pace.BGC, a.max_cloud, a.limit, a.out)
+
+
+def cmd_figures(a):
+    from . import figures
+
+    for p in figures.make_all(a.pace_dir, a.out):
+        print(f"Saved {p}")
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="dualbay", description="Tokyo Bay + Sagami Bay water quality toolkit")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -84,6 +100,21 @@ def main(argv=None):
     s.add_argument("--window", type=float, help="± hours (default from sensors.yaml)")
     s.add_argument("--out", default=PROCESSED / "matchups.csv")
     s.set_defaults(func=cmd_matchups)
+
+    s = sub.add_parser("pace", help="PACE OCI L2: zone spectra and station values over the bays")
+    s.add_argument("--start", default="2024-04-01")
+    s.add_argument("--end", default="2026-09-30")
+    s.add_argument("--product", choices=["aop", "bgc"], default="aop", help="aop = Rrs spectra, bgc = chlor_a")
+    s.add_argument("--max-cloud", type=float, default=80, help="granule-wide cloud cover limit, %%")
+    s.add_argument("--limit", type=int, help="max number of granules (for a quick test)")
+    s.add_argument("--files", nargs="*", help="local .nc files instead of a remote search")
+    s.add_argument("--out", default=PROCESSED / "pace")
+    s.set_defaults(func=cmd_pace)
+
+    s = sub.add_parser("figures", help="First-look figures from the PACE tables")
+    s.add_argument("--pace-dir", default=PROCESSED / "pace")
+    s.add_argument("--out", default="figures")
+    s.set_defaults(func=cmd_figures)
 
     a = p.parse_args(argv)
     a.func(a)

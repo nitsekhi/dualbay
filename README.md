@@ -51,6 +51,32 @@ dualbay matchups --insitu data/processed/insitu.csv --scenes data/processed/scen
 `data/processed/matchup_summary.csv` gives matchups per sensor × bay × parameter —
 the core table of the data availability report.
 
+## PACE first look (week of 7 Oct 2026)
+
+Three figures for the lab meeting: clear-scene availability per month, Rrs spectra per zone,
+and the standard NASA chlorophyll at monitoring posts.
+
+```bash
+pip install -e ".[pace]"
+
+# quick test: 5 granules
+dualbay pace --start 2025-07-01 --end 2025-08-31 --limit 5
+
+# spectra for one year (Rrs, PACE_OCI_L2_AOP) — opened remotely, only the bay subset is read
+dualbay pace --start 2025-01-01 --end 2025-12-31 --max-cloud 70
+
+# standard chlorophyll (PACE_OCI_L2_BGC) for the same period
+dualbay pace --product bgc --start 2025-01-01 --end 2025-12-31 --max-cloud 70
+
+# figures → figures/01_pace_availability.png, 02_pace_spectra.png, 03_pace_station_chl.png
+dualbay figures
+```
+
+Tables land in `data/processed/pace/`; progress is saved every 10 granules, so an interrupted run
+keeps what it already read. Each figure also gets a CSV with the numbers behind it.
+`--max-cloud` filters on the cloud cover of the whole granule (a wide swath), not of the bay;
+the per-zone clear fraction in `zone_spectra.csv` is the real measure.
+
 ## Layout
 
 ```
@@ -64,6 +90,8 @@ src/dualbay/
   insitu.py            CSV/Excel → long table (station, time JST, layer, depth, param, value, unit, qc)
   inventory.py         scene search (CDSE STAC, Earthdata) and manual scene lists
   matchup.py           scene–station pairing, summary, Bailey & Werdell (2006) window statistics
+  pace.py              PACE OCI L2: remote subset reading, zone spectra, station values
+  figures.py           first-look figures from the PACE tables
   cli.py               `dualbay` command
 tests/                 parser, matchups, window statistics, zones
 data/                  raw/ and processed/ (git-ignored)
