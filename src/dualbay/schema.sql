@@ -55,7 +55,8 @@ CREATE TABLE IF NOT EXISTS scene (
   time_utc   TEXT NOT NULL,
   cloud_pct  REAL,
   lon_min REAL, lat_min REAL, lon_max REAL, lat_max REAL,
-  processed  INTEGER NOT NULL DEFAULT 0
+  processed  INTEGER NOT NULL DEFAULT 0,
+  product_version TEXT                 -- e.g. PACE OCI '3.1'; never mix versions in one analysis
 );
 CREATE INDEX IF NOT EXISTS ix_scene_time ON scene(sensor_id, time_utc);
 

@@ -62,7 +62,7 @@ pip install -e ".[pace]"
 # quick test: 5 granules
 dualbay pace --start 2025-07-01 --end 2025-08-31 --limit 5
 
-# spectra for one year (Rrs, PACE_OCI_L2_AOP) — opened remotely, only the bay subset is read
+# spectra for one year (Rrs + Rrs_unc, PACE_OCI_L2_AOP v3.1) — each granule is downloaded to a temp dir, the bay subset read, the file deleted
 dualbay pace --start 2025-01-01 --end 2025-12-31 --max-cloud 70
 
 # standard chlorophyll (PACE_OCI_L2_BGC) for the same period
@@ -139,6 +139,8 @@ data/                  raw/ and processed/ (git-ignored)
   or the data files. For a 300 m OLCI pixel, a 1 km error already matters.
 - **Header keywords**: if `parse-insitu` reports "No parameter columns recognised", add the
   file's header words to `config/insitu_columns.yaml`.
+- PACE OCI L2 AOP v3.1 Rrs is a *provisional* product (NASA: biased low ~0.001 sr⁻¹ vs AERONET-OC; largest errors at 400–413 nm in complex waters). Record `product_version` and never mix v3.1 with later reprocessings in one analysis.
+- ABSAER and ATMWARN pixels are kept (reported per zone), because absorbing-aerosol errors over Tokyo Bay are the research object (Higa et al. 2024). Use `pace.MASK_EXTRA = ("ABSAER", "ATMWARN")` for a conservative run.
 - The in-situ parser keeps only surface/upper-layer values (or depth ≤ 2 m) for matchups;
   bottom-layer DO stays in the table for the hypoxia work but is not paired with satellite data.
 

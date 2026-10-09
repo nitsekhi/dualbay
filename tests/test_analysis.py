@@ -14,9 +14,19 @@ def test_flags_mask_and_fractions():
     f[1, 1] |= 1 << flags.L2_FLAG_BITS["ABSAER"]
     f[2, 2] |= 1 << flags.L2_FLAG_BITS["TURBIDW"]  # not in the standard mask
     good = flags.good_pixels(f, f.shape, "standard")
-    assert good.sum() == 14 and not good[0, 0] and not good[1, 1] and good[2, 2]
+    # ABSAER is deliberately NOT masked (research object in Tokyo Bay); LAND is
+    assert good.sum() == 15 and not good[0, 0] and good[1, 1] and good[2, 2]
+    assert flags.good_pixels(f, f.shape, "standard", extra=("ABSAER",)).sum() == 14
     fr = flags.flag_fractions(f, np.ones((4, 4), bool))
     assert fr["frac_absaer"] == pytest.approx(1 / 16) and fr["frac_turbidw"] == pytest.approx(1 / 16)
+    # bit table from the file's own flag_meanings (PACE OCI string, verified 2026)
+    fm = ("ATMFAIL LAND PRODWARN HIGLINT HILT HISATZEN COASTZ SPARE STRAYLIGHT CLDICE COCCOLITH TURBIDW HISOLZEN SPARE "
+          "LOWLW CHLFAIL NAVWARN ABSAER SPARE MAXAERITER MODGLINT CHLWARN ATMWARN OPSHAL SEAICE NAVFAIL FILTER SPARE "
+          "BOWTIEDEL HIPOL PRODFAIL SPARE")
+    masks = [1 << i for i in range(31)] + [-2147483648]
+    tb = flags.from_file_attrs(fm, masks)
+    assert tb["ABSAER"] == 17 and tb["OPSHAL"] == 23 and tb["NAVFAIL"] == 25 and "SPARE" not in tb
+    assert tb == {k: v for k, v in flags.L2_FLAG_BITS.items()}
 
 
 def _spectra(n, chl, rng, bay="tokyo", year=2025):

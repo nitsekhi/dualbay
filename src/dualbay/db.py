@@ -122,7 +122,9 @@ def load_station_values(con: sqlite3.Connection, st_df: pd.DataFrame, sensor_id:
     for r in st_df.itertuples(index=False):
         wl = None if pd.isna(r.wavelength) else float(r.wavelength)
         rrs = None if pd.isna(r.rrs) else float(r.rrs)
-        rows.append((r.granule, r.station, wl, rrs, None, None, None, float(r.dist_km), int(r.n_valid), None, int(bool(r.passed))))
+        unc = getattr(r, "rrs_unc", None)
+        unc = None if unc is None or pd.isna(unc) else float(unc)
+        rows.append((r.granule, r.station, wl, rrs, unc, None, None, float(r.dist_km), int(r.n_valid), None, int(bool(r.passed))))
     chl = st_df.drop_duplicates(["granule", "station"])
     for r in chl.itertuples(index=False):
         if not pd.isna(r.chlor_a):

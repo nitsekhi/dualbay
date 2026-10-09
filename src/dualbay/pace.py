@@ -35,6 +35,9 @@ REF_WL = 555.0             # band used to decide whether a pixel is valid
 BLUE_WL = (412.0, 443.0)   # bands checked for negative Rrs (atmospheric over-correction, Higa et al. 2024)
 MAX_STATION_DIST_KM = 1.5  # nearest pixel must be within this distance (OCI pixel ~1.2 km)
 MASK_LEVEL = "standard"    # flags.STANDARD_MASK; set "water" to keep more (riskier) pixels
+MASK_EXTRA = ()            # e.g. ("ABSAER", "ATMWARN") for a conservative run
+ACCESS_MODE = "download"   # "download": fetch granule to a temp dir, subset, delete (reliable outside AWS us-west-2)
+                           # "open": stream remotely (fast inside us-west-2, flaky elsewhere)
 
 
 # ---------- search ----------
@@ -109,13 +112,20 @@ def read_subset(src, bbox, variables=("Rrs",)) -> dict | None:
             return None
         rows, cols = np.where(inside.any(axis=1))[0], np.where(inside.any(axis=0))[0]
         r0, r1, c0, c1 = rows.min(), rows.max() + 1, cols.min(), cols.max() + 1
-        out = {"lat": lat[r0:r1, c0:c1], "lon": lon[r0:r1, c0:c1], "flags": None, "wavelength": None}
+        out = {"lat": lat[r0:r1, c0:c1], "lon": lon[r0:r1, c0:c1], "flags": None, "wavelength": None,
+               "flag_table": None, "product_version": None}
+        pv = f.attrs.get("processing_version") or f.attrs.get("product_version")
+        if pv is not None:
+            out["product_version"] = pv.decode() if isinstance(pv, bytes) else str(pv)
         geo = f["geophysical_data"]
         if "l2_flags" in geo:
             out["flags"] = np.asarray(geo["l2_flags"][r0:r1, c0:c1])
+            fm = geo["l2_flags"].attrs.get("flag_meanings")
+            fm = fm.decode() if isinstance(fm, bytes) else fm
+            out["flag_table"] = flags.from_file_attrs(fm, geo["l2_flags"].attrs.get("flag_masks"))
         if "sensor_band_parameters/wavelength_3d" in f:
             out["wavelength"] = np.asarray(f["sensor_band_parameters/wavelength_3d"][...], dtype=float)
-        for v in variables:
+        for v in list(variables) + (["Rrs_unc"] if "Rrs" in variables else []):
             if v in geo:
                 ds = geo[v]
                 out[v] = _read(ds, (slice(r0, r1), slice(c0, c1)) + ((slice(None),) if ds.ndim == 3 else ()))
@@ -136,8 +146,9 @@ def _water_valid(sub: dict, ref_idx: int | None):
     """water = not land; valid = water and passes the NASA standard mask and has a finite value."""
     shape = sub["lat"].shape
     fl = sub["flags"]
-    water = np.ones(shape, bool) if fl is None else ~flags.is_set(fl, "LAND")
-    good = flags.good_pixels(fl, shape, MASK_LEVEL)
+    tb = sub.get("flag_table")
+    water = np.ones(shape, bool) if fl is None else ~flags.is_set(fl, "LAND", tb)
+    good = flags.good_pixels(fl, shape, MASK_LEVEL, tb, MASK_EXTRA)
     if "Rrs" in sub and ref_idx is not None:
         valid = water & good & np.isfinite(sub["Rrs"][..., ref_idx])
     elif "chlor_a" in sub:
@@ -158,9 +169,10 @@ def pixel_budget(sub: dict, zones: dict | None = None) -> pd.DataFrame:
     zones = zones or study_area.zones()
     wl = sub["wavelength"]
     fl = sub["flags"]
+    tb = sub.get("flag_table")
     shape = sub["lat"].shape
-    water = np.ones(shape, bool) if fl is None else ~flags.is_set(fl, "LAND")
-    good = water & flags.good_pixels(fl, shape, MASK_LEVEL)
+    water = np.ones(shape, bool) if fl is None else ~flags.is_set(fl, "LAND", tb)
+    good = water & flags.good_pixels(fl, shape, MASK_LEVEL, tb, MASK_EXTRA)
     rows = []
     for zid, z in zones.items():
         x0, y0, x1, y1 = z["geometry"].bounds
@@ -168,7 +180,7 @@ def pixel_budget(sub: dict, zones: dict | None = None) -> pd.DataFrame:
         n_water, n_good = int((inz & water).sum()), int((inz & good).sum())
         row = {"zone": zid, "bay": z["bay"], "n_water": n_water, "n_good": n_good,
                "frac_good": n_good / n_water if n_water else np.nan}
-        row.update(flags.flag_fractions(fl, inz & water) if fl is not None else {})
+        row.update(flags.flag_fractions(fl, inz & water, table=tb) if fl is not None else {})
         if "Rrs" in sub and wl is not None and n_good:
             for b in BLUE_WL:
                 k = int(np.nanargmin(np.abs(wl - b)))
@@ -192,8 +204,9 @@ def zone_spectra(sub: dict, granule: str, zones: dict | None = None) -> pd.DataF
         inz = (sub["lon"] >= x0) & (sub["lon"] <= x1) & (sub["lat"] >= y0) & (sub["lat"] <= y1)
         n_water, n_valid = int((inz & water).sum()), int((inz & valid).sum())
         diag = {c: budget.loc[zid, c] for c in budget.columns if c.startswith("frac_")}
-        base = {"time": t, "granule": granule, "zone": zid, "bay": z["bay"], "n_water": n_water,
-                "n_valid": n_valid, "valid_frac": n_valid / n_water if n_water else 0.0, **diag}
+        base = {"time": t, "granule": granule, "product_version": sub.get("product_version"), "zone": zid,
+                "bay": z["bay"], "n_water": n_water, "n_valid": n_valid,
+                "valid_frac": n_valid / n_water if n_water else 0.0, **diag}
         if n_valid == 0 or "Rrs" not in sub:
             rows.append({**base, "wavelength": np.nan, "rrs_median": np.nan, "rrs_p25": np.nan, "rrs_p75": np.nan})
             continue
@@ -235,10 +248,14 @@ def station_values(sub: dict, granule: str, stations: pd.DataFrame | None = None
         chl = float(np.nanmedian(sub["chlor_a"][r0:r1, c0:c1])) if "chlor_a" in sub else np.nan
         if ref_idx is not None:
             spec = np.nanmedian(sub["Rrs"][r0:r1, c0:c1, :].reshape(-1, len(wl)), axis=0)
+            unc = (np.nanmedian(sub["Rrs_unc"][r0:r1, c0:c1, :].reshape(-1, len(wl)), axis=0)
+                   if "Rrs_unc" in sub else np.full(len(wl), np.nan))
             for k, w in enumerate(wl):
-                rows.append({**base, "wavelength": float(w), "rrs": spec[k], "chlor_a": chl})
+                rows.append({**base, "wavelength": float(w), "rrs": spec[k], "rrs_unc": unc[k], "chlor_a": chl,
+                             "product_version": sub.get("product_version")})
         else:
-            rows.append({**base, "wavelength": np.nan, "rrs": np.nan, "chlor_a": chl})
+            rows.append({**base, "wavelength": np.nan, "rrs": np.nan, "rrs_unc": np.nan, "chlor_a": chl,
+                         "product_version": sub.get("product_version")})
     return pd.DataFrame(rows)
 
 
@@ -305,8 +322,14 @@ def process(start: str, end: str, short_name: str = AOP, max_cloud: float | None
             continue
         for attempt in range(1, RETRIES + 1):
             try:
-                fobj = earthaccess.open([g])[0]
-                ok = _process_one(fobj, name, bbox, variables, zs, ss)
+                if ACCESS_MODE == "download":
+                    import tempfile
+                    with tempfile.TemporaryDirectory(prefix="pace_") as td:
+                        local = earthaccess.download([g], td)[0]
+                        ok = _process_one(local, name, bbox, variables, zs, ss)
+                else:
+                    fobj = earthaccess.open([g])[0]
+                    ok = _process_one(fobj, name, bbox, variables, zs, ss)
                 print(f"[{i}/{len(results)}] {'✓' if ok else '– outside bbox'} {name}")
                 break
             except (OSError, IOError, RuntimeError, KeyError, ValueError) as err:

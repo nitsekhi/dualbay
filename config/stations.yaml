@@ -1,16 +1,16 @@
 # In-situ stations. Coordinates marked coord_verified: false are approximate positions
-# read off public maps (±1–2 km). Replace them with the official values from the
-# Kanto Regional Bureau annual report or the data files before running real matchups;
-# for a 300 m OLCI pixel a 1 km error already matters.
+# read off public maps (±1–2 km). Official positions: station PDFs on tbeic.go.jp
+# (MonitoringPost/aboutObservedPoint01.pdf … 07.pdf) — download and copy the values here.
+# Stations 05–07 (中ノ瀬航路, 金田湾, 富浦湾) measure temperature only and are not listed.
 stations:
   kemigawa_oki:
     name_ja: 検見川沖
-    name_en: Kemigawa offshore
-    operator: MLIT Kanto Regional Bureau (monitoring post)
+    name_en: Kemigawa offshore (Kemigawa Offshore Tower; AERONET-OC site Kemigawa_Offshore, PI H. Higa)
+    operator: MLIT Kanto Regional Bureau (monitoring post); SeaPRISM on the same tower
     bay: tokyo
-    lat: 35.61
-    lon: 140.03
-    coord_verified: false
+    lat: 35.611
+    lon: 140.023
+    coord_verified: true   # AERONET-OC / SeaBASS site list: 35.611N 140.023E; MLIT station on the same tower (Higa et al. 2024)
     params: [water_temp, salinity, chl, turbidity, do, ph]
   chiba_port_beacon1:
     name_ja: 千葉港口第一号灯標

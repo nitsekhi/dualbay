@@ -33,10 +33,10 @@ before real data arrive. Demo outputs are mock data and live under `data/demo/`.
 
 | Decision | Reason |
 |---|---|
-| Read only the bay subset of each PACE granule, remotely | A granule is hundreds of MB; the two bays are ~1 % of it. A year of PACE fits on a laptop. |
+| Download each PACE granule to a temp dir, read only the bay subset, delete | A granule is hundreds of MB; the two bays are ~1 % of it. Remote streaming (`earthaccess.open`) falls back to HTTP outside AWS us-west-2 and is unreliable from Japan, so download-then-subset is the default. |
 | SQLite, not Postgres / Kafka / InfluxDB | One file, no server, idempotent loaders. ~10⁶ rows is nothing for it. Infrastructure is not the research question. |
 | Power BI as the dashboard | Already in the author's toolkit; regulatory-threshold logic lives in DAX; no hosting. Grafana removed. |
-| NASA standard L2 mask + per-zone flag fractions | The ABSAER / LOWLW / negative-blue-Rrs fractions per zone are a direct, cheap test of the atmospheric-correction problem in Tokyo Bay (Higa et al. 2024). |
+| NASA L3 mask without ABSAER/ATMWARN + per-zone flag fractions; bit table read from the file's `flag_meanings` | The ABSAER / LOWLW / negative-blue-Rrs fractions per zone are a direct, cheap test of the atmospheric-correction problem in Tokyo Bay (Higa et al. 2024). |
 | Three baseline tiers | The −20 % RMSE claim is measured against algorithms **recalibrated on the same matchups** (tier 2). Beating untuned global coefficients proves little. |
 | Random forest ensemble for uncertainty | Simplest method that gives a per-pixel interval and can be checked by coverage (PICP). GP / MDN can replace it behind the same `fit / predict` API. |
 | Temporal transfer before spatial | Needs Tokyo Bay data only; a digital twin runs daily for years, so season-to-season stability matters as much as bay-to-bay. |
