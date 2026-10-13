@@ -1,11 +1,19 @@
 # dualbay
 
 Water quality retrieval and digital twin framework for **Tokyo Bay** and **Sagami Bay**.
-Research project at Yokohama National University (Higa Lab), 2026–2029.
+Research project at Yokohama National University (Higa Lab), 2026–2029. Author: Lilya Javadova. License: MIT.
 
 This first version covers the kenkyusei-period groundwork (Oct–Nov 2026):
 study area zones, in-situ data parsing, satellite scene inventory, and matchup counting —
 the inputs for the **data availability report** that decides the main sensor.
+
+## Repository map
+
+- `src/dualbay/` — analysis chain (PACE reader, in-situ parser, matchups, store, baselines, OWT, uncertainty model, transfer experiments, lag analysis, Power BI export)
+- `tests/` — 12 automated tests, all offline (`pytest`)
+- `docs/` — architecture and methods text
+- `prototype/` — 3D prototype of the twin on **synthetic data**
+- `config/` — study-area zones, sensors, stations, in-situ header keywords
 
 ## Setup
 
@@ -18,7 +26,7 @@ uv pip install -e ".[dev,inventory]"
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,inventory]"
 
-pytest            # 4 tests, should pass
+pytest            # 12 tests, all offline, should pass
 ```
 
 For PACE searches, put your NASA Earthdata login in `~/.netrc`:

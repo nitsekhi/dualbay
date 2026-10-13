@@ -1,0 +1,372 @@
+<title>Dual Bay Twin 3D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one dark scene (deliberately single-theme — a lit 3D bathymetry doesn't invert), side panel of charts, time bar below */
+:root{
+  --bg:#070d14; --panel:#0d1620; --line:#1d2b38; --fg:#dbe6ee; --muted:#8aa0b2; --ink2:#b7c6d2;
+  --accent:#4fc1cc; --chl1:#d8f3dc; --chl5:#2f7d4f; --hypox:#b56cff; --warn:#f08a76; --sagami:#6fcf95; --tokyo:#e0a064;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace; --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:13px;overflow:hidden}
+#app{display:grid;grid-template-columns:1fr 360px;grid-template-rows:auto 1fr auto;height:100%;min-height:0}
+header{grid-column:1/3;display:flex;align-items:center;gap:14px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+header h1{font-size:15px;font-weight:600;margin:0;letter-spacing:.01em}
+.demo{font-family:var(--mono);font-size:11px;padding:3px 8px;border:1px solid var(--warn);color:var(--warn);border-radius:4px;letter-spacing:.06em}
+.sub{color:var(--muted);font-size:12px}
+.layers{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+.layers label{font-size:12px;color:var(--ink2);display:flex;align-items:center;gap:5px;padding:4px 8px;border:1px solid var(--line);border-radius:6px;cursor:pointer;user-select:none}
+.layers input{accent-color:var(--accent);margin:0}
+#scene{position:relative;min-width:0;min-height:0}
+#scene canvas{display:block;width:100%;height:100%}
+#hud{position:absolute;left:12px;bottom:12px;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.legend{background:rgba(13,22,32,.85);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:11px;color:var(--ink2);backdrop-filter:blur(4px)}
+.legend .bar{height:8px;width:160px;border-radius:4px;background:linear-gradient(90deg,#102a54,#146080,#249676,#78c448,#f6e250);margin:4px 0}
+.legend .ticks{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--muted)}
+.legend .sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:5px}
+#tip{position:absolute;pointer-events:none;background:rgba(13,22,32,.95);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-size:12px;display:none;max-width:260px}
+#tip b{font-weight:600}
+#tip .m{font-family:var(--mono);color:var(--muted);font-size:11px}
+aside{border-left:1px solid var(--line);background:var(--panel);overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:14px;min-height:0}
+aside h2{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
+.kpis{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.kpi{border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.kpi .v{font-family:var(--mono);font-size:20px;font-weight:500;line-height:1.1}
+.kpi .l{font-size:11px;color:var(--muted);margin-top:2px}
+.kpi.alert .v{color:var(--warn)}
+canvas.chart{width:100%;height:120px;display:block;border-radius:6px}
+canvas.hov{height:150px}
+.chart-note{font-size:11px;color:var(--muted);margin-top:4px}
+.sel{font-size:12px;color:var(--ink2)}
+.sel b{color:var(--fg)}
+footer{grid-column:1/3;display:flex;align-items:center;gap:12px;padding:10px 16px;border-top:1px solid var(--line);background:var(--panel)}
+footer button{font:500 12px var(--sans);color:var(--fg);background:var(--line);border:1px solid #2a3b4a;border-radius:6px;padding:5px 12px;cursor:pointer}
+footer button:hover{background:#243545}
+footer input[type=range]{flex:1;accent-color:var(--accent)}
+#date{font-family:var(--mono);font-size:13px;min-width:120px}
+.speed{font-size:12px;color:var(--muted)}
+.speed select{font:12px var(--sans);background:var(--line);color:var(--fg);border:1px solid #2a3b4a;border-radius:4px;padding:2px 4px}
+button:focus-visible,input:focus-visible,label:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+@media (max-width:860px){
+  #app{grid-template-columns:1fr;grid-template-rows:auto 55vh auto auto;overflow:auto}
+  aside{border-left:none;border-top:1px solid var(--line)}
+  body{overflow:auto}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div id="app">
+<header>
+  <h1>Dual Bay Twin 3D</h1>
+  <span class="demo">SYNTHETIC DEMO · не реальные данные</span>
+  <span class="sub">Tokyo Bay → Uraga → Miura → Sagami Bay · PACE OCI 1.2 km · 2025</span>
+  <div class="layers">
+    <label><input type="checkbox" id="l-surface" checked> Surface Chl-a</label>
+    <label><input type="checkbox" id="l-unc" checked> Uncertainty fade</label>
+    <label><input type="checkbox" id="l-hypox" checked> Bottom hypoxia</label>
+    <label><input type="checkbox" id="l-stations" checked> Stations</label>
+    <label><input type="checkbox" id="l-bathy" checked> Bathymetry</label>
+  </div>
+</header>
+
+<div id="scene">
+  <div id="tip"></div>
+  <div id="hud">
+    <div class="legend">Surface Chl-a (µg/L), PACE OCI<div class="bar"></div><div class="ticks"><span>0.3</span><span>1</span><span>3</span><span>10</span><span>30</span></div>
+      <div style="margin-top:4px">faded = low confidence · grey = cloud / flagged · toggle “Surface” off to see the sea floor</div></div>
+    <div class="legend"><span class="sw" style="background:var(--hypox)"></span>Bottom DO &lt; 3 mg/L (height = deficit × depth)<br>
+      <span class="sw" style="background:var(--tokyo)"></span>Tokyo Bay station &nbsp;<span class="sw" style="background:var(--sagami)"></span>Sagami Bay station &nbsp;· column height = in-situ Chl-a<br>
+      <span class="m" style="font-family:var(--mono);font-size:10px;color:var(--muted)">drag: rotate · wheel: zoom · right-drag: pan · click station: select</span></div>
+  </div>
+</div>
+
+<aside>
+  <section>
+    <h2>Today</h2>
+    <div class="kpis">
+      <div class="kpi"><div class="v" id="k-chl">–</div><div class="l">Inner Tokyo Bay Chl-a, median µg/L</div></div>
+      <div class="kpi"><div class="v" id="k-sag">–</div><div class="l">Open Sagami Chl-a, median µg/L</div></div>
+      <div class="kpi" id="k-hyp-box"><div class="v" id="k-hyp">–</div><div class="l">Hypoxic area &lt; 3 mg/L, km²</div></div>
+      <div class="kpi"><div class="v" id="k-good">–</div><div class="l">Usable pixels, % of water</div></div>
+    </div>
+  </section>
+  <section>
+    <h2>Gradient · Tokyo Port → open Sagami, whole year</h2>
+    <canvas class="chart hov" id="c-hov"></canvas>
+    <div class="chart-note">Colour = Chl-a along the transect (Tokyo Port at the top); vertical line = today. Blooms fade from the inner bay; Sagami stays blue except the October flood plume.</div>
+  </section>
+  <section>
+    <h2>Selected station</h2>
+    <div class="sel" id="sel-name">Click a station column</div>
+    <canvas class="chart" id="c-chl"></canvas>
+    <div class="chart-note">Surface Chl-a: in-situ (line) vs satellite at the pixel (dots)</div>
+    <canvas class="chart" id="c-do"></canvas>
+    <div class="chart-note">Bottom DO, mg/L; dashed = 3 mg/L hypoxia line (底層DO class 生物2)</div>
+  </section>
+  <section>
+    <h2>Pixel budget today, inner Tokyo Bay</h2>
+    <canvas class="chart" id="c-flags" style="height:90px"></canvas>
+  </section>
+</aside>
+
+<footer>
+  <button id="play">▶ Play</button>
+  <span id="date">2025-01-01</span>
+  <input type="range" id="day" min="0" max="364" value="200" aria-label="Day of 2025">
+  <span class="speed">speed <select id="speed"><option value="1">1 d/tick</option><option value="2" selected>2 d/tick</option><option value="5">5 d/tick</option></select></span>
+</footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ======================= SYNTHETIC WORLD (pure functions; mirrors dualbay/demo.py in spirit) =======================
+const LON0=139.0, LAT0=34.85, LON1=140.2, LAT1=35.75;
+const KX=111.2*Math.cos(35.3*Math.PI/180), KY=111.2;           // km per degree
+const NX=132, NY=100;                                           // grid (≈0.9 km cells, close to OCI 1.2 km)
+const DAYS=365;
+const tokyoPoly=[[139.78,35.62],[139.85,35.66],[139.88,35.65],[139.93,35.63],[139.99,35.67],[140.07,35.61],[140.06,35.50],[139.95,35.44],[139.89,35.40],[139.81,35.32],[139.79,35.22],[139.78,35.10],[139.80,34.98],[139.70,34.95],[139.68,35.10],[139.74,35.24],[139.68,35.28],[139.67,35.42],[139.75,35.51],[139.78,35.56]];
+const sagamiPoly=[[139.70,34.95],[139.62,35.12],[139.60,35.20],[139.57,35.27],[139.53,35.31],[139.47,35.31],[139.36,35.32],[139.29,35.31],[139.19,35.26],[139.14,35.16],[139.10,35.05],[139.12,34.90],[139.12,34.85],[139.72,34.85]];
+function inPoly(x,y,p){let ins=false;for(let i=0,j=p.length-1;i<p.length;j=i++){const xi=p[i][0],yi=p[i][1],xj=p[j][0],yj=p[j][1];if(((yi>y)!==(yj>y))&&(x<(xj-xi)*(y-yi)/(yj-yi)+xi))ins=!ins;}return ins;}
+function segDist(px,py,ax,ay,bx,by){const dx=bx-ax,dy=by-ay;const t=Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/(dx*dx+dy*dy||1)));return Math.hypot(px-(ax+t*dx),py-(ay+t*dy));}
+function coastDistKm(lon,lat,poly,openEdges){let d=1e9;for(let i=0;i<poly.length;i++){if(openEdges.has(i))continue;const a=poly[i],b=poly[(i+1)%poly.length];const dd=segDist(lon*KX,lat*KY,a[0]*KX,a[1]*KY,b[0]*KX,b[1]*KY);if(dd<d)d=dd;}return d;}
+// open-water edges (not coast): Tokyo mouth 12→13, Sagami south 11→12→13→0 and the Uraga link 13→0
+const tokyoOpen=new Set([12,13]), sagamiOpen=new Set([11,12,13]);
+// channel axis of Tokyo Bay for depth and for the "gradient coordinate"
+const axis=[[139.86,35.62],[139.80,35.50],[139.76,35.38],[139.75,35.26],[139.76,35.14],[139.74,35.02],[139.60,34.98],[139.45,34.95],[139.30,34.95]];
+function axisParam(lon,lat){ // 0 at Tokyo Port … 1 at open Sagami; also distance from axis
+  let best=1e9,s=0,cum=0,total=0,L=[];for(let i=0;i<axis.length-1;i++){const l=Math.hypot((axis[i+1][0]-axis[i][0])*KX,(axis[i+1][1]-axis[i][1])*KY);L.push(l);total+=l;}
+  for(let i=0;i<axis.length-1;i++){const a=axis[i],b=axis[i+1];const dx=(b[0]-a[0])*KX,dy=(b[1]-a[1])*KY;const t=Math.max(0,Math.min(1,((lon-a[0])*KX*dx+(lat-a[1])*KY*dy)/(dx*dx+dy*dy)));const d=Math.hypot((lon-a[0])*KX-t*dx,(lat-a[1])*KY-t*dy);if(d<best){best=d;s=(cum+t*L[i])/total;}cum+=L[i];}
+  return {s,d:best};
+}
+// deterministic noise
+function hash(i,j,k){let h=(i*374761393+j*668265263+k*2147483647)|0;h=(h^(h>>>13))*1274126177;return(((h^(h>>>16))>>>0)%10000)/10000;}
+function smooth(i,j,k,sc){const x=i/sc,y=j/sc,x0=Math.floor(x),y0=Math.floor(y),fx=x-x0,fy=y-y0;const u=fx*fx*(3-2*fx),v=fy*fy*(3-2*fy);
+  const a=hash(x0,y0,k),b=hash(x0+1,y0,k),c=hash(x0,y0+1,k),d=hash(x0+1,y0+1,k);return (a*(1-u)+b*u)*(1-v)+(c*(1-u)+d*u)*v;}
+
+// ---- static grid
+const cell=new Array(NX*NY);
+for(let j=0;j<NY;j++)for(let i=0;i<NX;i++){
+  const lon=LON0+(i+.5)/NX*(LON1-LON0), lat=LAT0+(j+.5)/NY*(LAT1-LAT0);
+  const inT=inPoly(lon,lat,tokyoPoly), inS=!inT&&inPoly(lon,lat,sagamiPoly);
+  let c={lon,lat,water:inT||inS,bay:inT?"tokyo":inS?"sagami":null,depth:0,coast:0,s:0,inner:false};
+  if(c.water){
+    const ap=axisParam(lon,lat);c.s=ap.s;
+    if(inT){c.coast=coastDistKm(lon,lat,tokyoPoly,tokyoOpen);const chan=Math.exp(-ap.d*ap.d/18);const south=Math.min(1,Math.max(0,(ap.s-0.15)/0.3));
+      c.depth=(12+18*south+60*chan*south)*(1-Math.exp(-c.coast/1.5))+2;c.inner=lat>35.33;}
+    else{c.coast=coastDistKm(lon,lat,sagamiPoly,sagamiOpen);const shelf=1-Math.exp(-c.coast/9);c.depth=(60+1100*shelf)*(1-Math.exp(-c.coast/1.2))+5;if(lon<139.2)c.depth*=1.3;}
+  }
+  cell[i+j*NX]=c;
+}
+const RIVERS={edo:[139.88,35.645],tama:[139.78,35.535],sagami:[139.37,35.31],sakawa:[139.19,35.26]};
+function season(day){return Math.sin((day-100)/365*2*Math.PI);}
+const bloomsT=[[135,6,2.2],[165,7,3.0],[196,5,1.8],[222,8,2.6],[250,6,2.0],[275,5,1.5]];   // day, width, amp
+const typhoon={day:278,width:4};
+// per-day surface Chl-a, cloud/flag mask, uncertainty  — returns Float32Arrays
+function dayFields(day){
+  const chl=new Float32Array(NX*NY), unc=new Float32Array(NX*NY), ok=new Uint8Array(NX*NY);
+  const se=season(day);
+  let bl=0;for(const [d,w,a] of bloomsT)bl+=a*Math.exp(-(((day-d)/w)**2));
+  const ty=Math.exp(-(((day-typhoon.day)/typhoon.width)**2))*(day>=typhoon.day-1?1:0.2);
+  const spring=Math.exp(-(((day-60)/18)**2));
+  for(let j=0;j<NY;j++)for(let i=0;i<NX;i++){const k=i+j*NX,c=cell[k];if(!c.water)continue;
+    const n=0.75+0.5*smooth(i,j,day%97,6);
+    let v;
+    if(c.bay==="tokyo"){
+      const inner=Math.max(0,1-Math.max(0,(c.s-0.25))/0.45);
+      const re=Math.exp(-(((c.lon-RIVERS.edo[0])*KX)**2+((c.lat-RIVERS.edo[1])*KY)**2)/60), rt=Math.exp(-(((c.lon-RIVERS.tama[0])*KX)**2+((c.lat-RIVERS.tama[1])*KY)**2)/40);
+      v=(1.2+10*inner*Math.exp(0.5*se))*(1+bl*(0.6+re*1.6+rt*1.0))*n;
+    }else{
+      const rs=Math.exp(-(((c.lon-RIVERS.sagami[0])*KX)**2+((c.lat-RIVERS.sagami[1])*KY)**2)/80), rk=Math.exp(-(((c.lon-RIVERS.sakawa[0])*KX)**2+((c.lat-RIVERS.sakawa[1])*KY)**2)/50);
+      const coastal=Math.exp(-c.coast/6);
+      v=(0.5+0.9*coastal+1.8*spring*coastal)*n+ty*(2+14*rs+9*rk);
+    }
+    // the Miura/Uraga transition blends both regimes
+    if(c.s>0.55&&c.s<0.75&&c.bay==="tokyo")v*=0.6+0.4*(0.75-c.s)/0.2;
+    chl[k]=v;
+    const cloud=smooth(i,j,1000+day,9)>0.62+0.18*Math.sin(day/11);
+    const adj=c.coast<2.4;                              // adjacency / stray light near land
+    ok[k]=(!cloud)?1:0;
+    unc[k]=Math.min(1,0.15+(adj?0.45:0)+(cloud?0.4:0)+0.25*smooth(i,j,500+day,7)+(c.bay==="tokyo"&&c.inner&&day>120&&day<290?0.15:0));
+  }
+  return {chl,unc,ok};
+}
+// bottom DO (Tokyo inner): stratification + lagged bloom → hypoxia volume
+const DO_A=1.3, DO_B=0.5, DO_N=2.6, DO_W=0.6;
+function bottomDO(day){
+  const se=Math.sin((day-142)/365*2*Math.PI);const strat=Math.max(0,se)*4.2;   // stratification peaks Aug–Sep
+  let lag=0;for(const [d,w,a] of bloomsT)lag+=a*Math.exp(-(((day-12-d)/(w*3.2))**2));
+  const out=new Float32Array(NX*NY);
+  for(let k=0;k<NX*NY;k++){const c=cell[k];if(!c.water||c.bay!=="tokyo"){out[k]=7;continue;}
+    const deep=Math.min(1,Math.max(0,(c.depth-4)/16));const inner=Math.max(0,1-Math.max(0,(c.s-0.22))/0.33);
+    const wind=Math.max(0,Math.sin(day/4.7))*(day>262&&day<330?DO_W:0.25);   // autumn wind-mixing events (reaeration)
+    let v=7.4-DO_A*strat*deep*inner-DO_B*lag*deep*inner+DO_N*(smooth(k%NX,(k/NX)|0,day%53,8)-0.5)+wind;
+    out[k]=Math.max(0.2,Math.min(9,v));}
+  return out;
+}
+// stations (approximate coordinates; demo)
+const STATIONS=[
+ {id:"kemigawa_oki",name:"検見川沖 Kemigawa-oki · AERONET-OC",lon:140.023,lat:35.611,bay:"tokyo",aeronet:true},
+ {id:"chiba_port_beacon1",name:"千葉港口第一号灯標 Chiba Port beacon 1",lon:140.01,lat:35.53,bay:"tokyo"},
+ {id:"kawasaki_island",name:"川崎人工島 Kawasaki artificial island",lon:139.83,lat:35.49,bay:"tokyo"},
+ {id:"urayasu_oki",name:"浦安沖 Urayasu-oki",lon:139.92,lat:35.60,bay:"tokyo"},
+ {id:"chiba_light_beacon_jcg",name:"千葉灯標 Chiba light beacon (JCG)",lon:140.04,lat:35.56,bay:"tokyo"},
+ {id:"sagami_hiratsuka",name:"平塚沖 Hiratsuka offshore (demo)",lon:139.35,lat:35.28,bay:"sagami"},
+ {id:"station_m",name:"Station M, Manazuru (YNU)",lon:139.167,lat:35.158,bay:"sagami"},
+ {id:"sagami_open",name:"Sagami central (demo)",lon:139.35,lat:35.08,bay:"sagami"},
+];
+function cellIndexOf(lon,lat){const i=Math.min(NX-1,Math.max(0,Math.floor((lon-LON0)/(LON1-LON0)*NX)));const j=Math.min(NY-1,Math.max(0,Math.floor((lat-LAT0)/(LAT1-LAT0)*NY)));return i+j*NX;}
+// precompute year: station series, transect hovmöller, daily KPIs (365 × fields ≈ cheap)
+const transectN=60, hov=new Float32Array(DAYS*transectN), transectCells=[];
+for(let t=0;t<transectN;t++){const s=t/(transectN-1);let best=null,bd=1e9;for(const c of cell){if(!c.water)continue;const d=Math.abs(c.s-s)+ (c.bay==="tokyo"?axisParam(c.lon,c.lat).d:coastDistKm(c.lon,c.lat,sagamiPoly,sagamiOpen)>8?0:0.02)*0.01;if(d<bd){bd=d;best=c;}}transectCells.push(cell.indexOf(best));}
+const series=STATIONS.map(()=>({insitu:new Float32Array(DAYS),sat:new Float32Array(DAYS).fill(NaN),dob:new Float32Array(DAYS)}));
+const kpi=[];
+for(let d=0;d<DAYS;d++){const f=dayFields(d),dob=bottomDO(d);
+  for(let t=0;t<transectN;t++){const k=transectCells[t];hov[d*transectN+t]=f.chl[k];}
+  STATIONS.forEach((st,si)=>{const k=cellIndexOf(st.lon,st.lat);const truth=f.chl[k]*(0.9+0.2*hash(si,d,7));series[si].insitu[d]=truth;
+    if(f.ok[k]&&hash(d,si,3)>0.12)series[si].sat[d]=truth*(1+(hash(si,d,11)-0.5)*0.5*(0.5+f.unc[k]));series[si].dob[d]=st.bay==="tokyo"?dob[k]:7+0.3*Math.sin(d/30);});
+  let nT=0,sT=[],sS=[],good=0,water=0,hyp=0;const cellKm2=((LON1-LON0)/NX*KX)*((LAT1-LAT0)/NY*KY);
+  for(let k=0;k<NX*NY;k++){const c=cell[k];if(!c.water)continue;if(c.bay==="tokyo"&&c.inner){water++;if(f.ok[k])good++;sT.push(f.chl[k]);if(dob[k]<3)hyp++;}else if(c.bay==="sagami"&&c.coast>8)sS.push(f.chl[k]);}
+  const med=a=>{a.sort((x,y)=>x-y);return a[a.length>>1]||0;};
+  kpi.push({chlT:med(sT),chlS:med(sS),good:100*good/Math.max(1,water),hypKm2:hyp*cellKm2});
+}
+if(typeof module!=="undefined"){module.exports={cell,dayFields,bottomDO,kpi,series,hov,STATIONS,NX,NY};}
+
+// ======================= 3D SCENE =======================
+if(typeof THREE!=="undefined"&&typeof document!=="undefined"){
+const Z=d=>-Math.sqrt(Math.max(0,d))*1.0;                        // vertical: sqrt(depth) so 40 m and 1200 m both read
+const X=lon=>(lon-LON0)*KX-((LON1-LON0)*KX)/2, Y=lat=>(lat-LAT0)*KY-((LAT1-LAT0)*KY)/2;
+const sceneEl=document.getElementById("scene");
+const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(2,window.devicePixelRatio));sceneEl.appendChild(renderer.domElement);
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x070d14);scene.fog=new THREE.Fog(0x070d14,220,420);
+const camera=new THREE.PerspectiveCamera(42,1,0.5,2000);
+// orbit state
+let az=-0.18,el=1.0,dist=142,target=new THREE.Vector3(3,0,-4);
+function placeCamera(){camera.position.set(target.x+dist*Math.cos(el)*Math.sin(az),target.y-dist*Math.cos(el)*Math.cos(az),target.z+dist*Math.sin(el));camera.up.set(0,0,1);camera.lookAt(target);}
+scene.add(new THREE.HemisphereLight(0x9fc5e8,0x101820,0.9));const sun=new THREE.DirectionalLight(0xffffff,0.8);sun.position.set(-80,-120,160);scene.add(sun);
+
+// ---- bathymetry mesh (land as a dim plate, water floor shaded by depth)
+const geo=new THREE.PlaneGeometry((LON1-LON0)*KX,(LAT1-LAT0)*KY,NX-1,NY-1);
+const pos=geo.attributes.position, col=new Float32Array(pos.count*3);
+const landC=new THREE.Color(0x1a2430), shallow=new THREE.Color(0x2b4a5e), deep=new THREE.Color(0x0b1a2a);
+for(let j=0;j<NY;j++)for(let i=0;i<NX;i++){const k=i+j*NX,c=cell[k],v=i+j*NX; // PlaneGeometry vertex order: row-major from top → map j
+  const vi=i+(NY-1-j)*NX;const z=c.water?Z(c.depth):0.6;pos.setZ(vi,z);
+  const cc=c.water?shallow.clone().lerp(deep,Math.min(1,Math.sqrt(c.depth)/34)):landC;col[vi*3]=cc.r;col[vi*3+1]=cc.g;col[vi*3+2]=cc.b;}
+geo.setAttribute("color",new THREE.BufferAttribute(col,3));geo.computeVertexNormals();
+const bathy=new THREE.Mesh(geo,new THREE.MeshLambertMaterial({vertexColors:true}));scene.add(bathy);
+// coast outline for readability
+(function outline(poly,colr){const pts=poly.map(p=>new THREE.Vector3(X(p[0]),Y(p[1]),0.9));pts.push(pts[0].clone());scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:colr,transparent:true,opacity:0.35})));})(tokyoPoly,0xe0a064);
+(function outline(poly,colr){const pts=poly.map(p=>new THREE.Vector3(X(p[0]),Y(p[1]),0.9));scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:colr,transparent:true,opacity:0.35})));})(sagamiPoly,0x6fcf95);
+
+// ---- surface Chl-a texture (canvas → texture), alpha = confidence
+const tc=document.createElement("canvas");tc.width=NX;tc.height=NY;const tctx=tc.getContext("2d");
+const tex=new THREE.CanvasTexture(tc);tex.magFilter=THREE.LinearFilter;tex.minFilter=THREE.LinearFilter;
+const surf=new THREE.Mesh(new THREE.PlaneGeometry((LON1-LON0)*KX,(LAT1-LAT0)*KY),new THREE.MeshBasicMaterial({map:tex,transparent:true,depthWrite:false}));surf.position.z=0.35;scene.add(surf);
+// sequential green ramp, log scale 0.3–30 µg/L (one hue, light → dark)
+const ramp=[[16,42,84],[20,96,128],[36,150,118],[120,196,72],[246,226,80]];   // dark-surface ramp: low = deep blue, high = yellow
+function chlColor(v){const t=Math.max(0,Math.min(1,(Math.log10(Math.max(0.3,v))-Math.log10(0.3))/2));const x=t*(ramp.length-1),i=Math.min(ramp.length-2,Math.floor(x)),f=x-i;const a=ramp[i],b=ramp[i+1];return [a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f,a[2]+(b[2]-a[2])*f];}
+let useUnc=true;
+function paintSurface(f){const img=tctx.createImageData(NX,NY);const d=img.data;
+  for(let j=0;j<NY;j++)for(let i=0;i<NX;i++){const k=i+j*NX,c=cell[k],p=(i+(NY-1-j)*NX)*4;
+    if(!c.water){d[p+3]=0;continue;}
+    if(!f.ok[k]){d[p]=88;d[p+1]=98;d[p+2]=110;d[p+3]=215;continue;}
+    const rgb=chlColor(f.chl[k]);d[p]=rgb[0];d[p+1]=rgb[1];d[p+2]=rgb[2];d[p+3]=useUnc?Math.round(235*(1-0.8*f.unc[k])):235;}
+  tctx.putImageData(img,0,0);tex.needsUpdate=true;}
+
+// ---- hypoxia columns (instanced): one box per hypoxic cell, from the bottom up
+const cw=(LON1-LON0)*KX/NX, ch=(LAT1-LAT0)*KY/NY;
+const hypMat=new THREE.MeshBasicMaterial({color:0xc48cff,transparent:true,opacity:0.78,depthWrite:false});
+const hypMesh=new THREE.InstancedMesh(new THREE.BoxGeometry(cw*0.98,ch*0.98,1),hypMat,NX*NY);hypMesh.count=0;scene.add(hypMesh);
+const m4=new THREE.Matrix4(),q=new THREE.Quaternion(),vs=new THREE.Vector3(),vp=new THREE.Vector3();
+function paintHypoxia(dob){let n=0;for(let k=0;k<NX*NY;k++){const c=cell[k];if(!c.water||c.bay!=="tokyo"||dob[k]>=3)continue;
+    const deficit=(3-dob[k])/3;const h=Math.max(0.3,Math.abs(Z(c.depth))*(0.4+1.1*deficit));const zb=Z(c.depth);
+    vp.set(X(c.lon),Y(c.lat),zb+h/2);vs.set(1,1,h);m4.compose(vp,q,vs);hypMesh.setMatrixAt(n++,m4);}
+  hypMesh.count=n;hypMesh.instanceMatrix.needsUpdate=true;}
+
+// ---- stations as columns
+const stGroup=new THREE.Group();scene.add(stGroup);
+const stMeshes=STATIONS.map((st,i)=>{const g=new THREE.CylinderGeometry(0.9,0.9,1,16);g.rotateX(Math.PI/2);g.translate(0,0,0.5);
+  const m=new THREE.Mesh(g,new THREE.MeshLambertMaterial({color:st.bay==="tokyo"?0xe0a064:0x6fcf95}));m.position.set(X(st.lon),Y(st.lat),0.9);m.userData={i};stGroup.add(m);
+  if(st.aeronet){const ring=new THREE.Mesh(new THREE.RingGeometry(1.6,2.2,24),new THREE.MeshBasicMaterial({color:0x4fc1cc,side:THREE.DoubleSide}));ring.position.set(X(st.lon),Y(st.lat),0.95);stGroup.add(ring);}
+  return m;});
+function paintStations(day){STATIONS.forEach((st,i)=>{const v=series[i].insitu[day];const h=Math.max(0.6,3*Math.log10(Math.max(0.3,v)/0.3)*2.2);stMeshes[i].scale.z=h;
+  const sat=series[i].sat[day];const m=stMeshes[i].material;if(isFinite(sat)){const r=Math.abs(Math.log10(sat/v));m.emissive=new THREE.Color(r>0.3?0xf08a76:0x000000);m.emissiveIntensity=0.6;}else{m.emissive=new THREE.Color(0x000000);}});}
+
+// ======================= CHARTS (2D canvases) =======================
+function cv(id){const c=document.getElementById(id);const r=c.getBoundingClientRect();const dpr=Math.min(2,window.devicePixelRatio||1);c.width=Math.max(1,r.width*dpr);c.height=Math.max(1,r.height*dpr);const x=c.getContext("2d");x.setTransform(dpr,0,0,dpr,0,0);return {c,x,w:r.width,h:r.height};}
+const MONTHS=["J","F","M","A","M","J","J","A","S","O","N","D"];
+function axes(x,w,h,pad,ymin,ymax,fmt){x.strokeStyle="#1d2b38";x.lineWidth=1;x.font="10px IBM Plex Mono, monospace";x.fillStyle="#8aa0b2";
+  for(let m=0;m<12;m++){const px=pad.l+(m*30.4)/365*(w-pad.l-pad.r);x.fillText(MONTHS[m],px+2,h-3);}
+  for(let g=0;g<=2;g++){const yy=pad.t+(h-pad.t-pad.b)*g/2;x.beginPath();x.moveTo(pad.l,yy);x.lineTo(w-pad.r,yy);x.stroke();x.fillText(fmt(ymax-(ymax-ymin)*g/2),2,yy+3);}}
+function drawHov(day){const {x,w,h}=cv("c-hov");x.clearRect(0,0,w,h);const pad={l:30,t:6,r:6,b:14};const pw=w-pad.l-pad.r,ph=h-pad.t-pad.b;
+  const img=x.createImageData(Math.max(1,Math.round(pw)),Math.max(1,Math.round(ph)));const W=img.width,H=img.height;
+  for(let yy=0;yy<H;yy++){const t=Math.floor(yy/H*transectN);for(let xx=0;xx<W;xx++){const d=Math.floor(xx/W*DAYS);const rgb=chlColor(hov[d*transectN+t]);const p=(xx+yy*W)*4;img.data[p]=rgb[0];img.data[p+1]=rgb[1];img.data[p+2]=rgb[2];img.data[p+3]=255;}}
+  x.putImageData(img,pad.l,pad.t);
+  x.font="10px IBM Plex Mono, monospace";x.fillStyle="#8aa0b2";x.save();x.translate(9,pad.t+ph/2);x.rotate(Math.PI/2);x.textAlign="center";x.fillText("Tokyo → Sagami",0,0);x.restore();
+  for(let m=0;m<12;m++){const px=pad.l+(m*30.4)/365*pw;x.fillText(MONTHS[m],px+2,h-3);}
+  const px=pad.l+day/364*pw;x.strokeStyle="#dbe6ee";x.lineWidth=1.5;x.beginPath();x.moveTo(px,pad.t);x.lineTo(px,pad.t+ph);x.stroke();}
+function drawSeries(id,day,si,kind){const {x,w,h}=cv(id);x.clearRect(0,0,w,h);const pad={l:30,t:8,r:6,b:14};const pw=w-pad.l-pad.r,ph=h-pad.t-pad.b;
+  const s=series[si];let ymin,ymax,fmt;
+  if(kind==="chl"){ymin=-0.6;ymax=1.6;fmt=v=>(10**v).toFixed(v<0?1:0);}else{ymin=0;ymax=9;fmt=v=>v.toFixed(0);}
+  axes(x,w,h,pad,ymin,ymax,fmt);
+  const sx=d=>pad.l+d/364*pw, sy=v=>pad.t+ph*(1-(v-ymin)/(ymax-ymin));
+  if(kind==="do"){x.setLineDash([4,3]);x.strokeStyle="#f08a76";x.beginPath();x.moveTo(pad.l,sy(3));x.lineTo(w-pad.r,sy(3));x.stroke();x.setLineDash([]);}
+  x.strokeStyle=kind==="chl"?"#78c448":"#c48cff";x.lineWidth=2;x.beginPath();
+  for(let d=0;d<DAYS;d++){const v=kind==="chl"?Math.log10(Math.max(0.3,s.insitu[d])):s.dob[d];const X_=sx(d),Y_=sy(v);d?x.lineTo(X_,Y_):x.moveTo(X_,Y_);}x.stroke();
+  if(kind==="chl"){x.fillStyle="#dbe6ee";for(let d=0;d<DAYS;d++){const v=s.sat[d];if(!isFinite(v))continue;x.beginPath();x.arc(sx(d),sy(Math.log10(Math.max(0.3,v))),1.6,0,6.3);x.fill();}}
+  x.strokeStyle="#dbe6ee";x.lineWidth=1;x.beginPath();x.moveTo(sx(day),pad.t);x.lineTo(sx(day),pad.t+ph);x.stroke();}
+function drawFlags(day){const {x,w,h}=cv("c-flags");x.clearRect(0,0,w,h);const f=cur.f;let water=0,cloud=0,adj=0,absaer=0;
+  for(let k=0;k<NX*NY;k++){const c=cell[k];if(!c.water||c.bay!=="tokyo"||!c.inner)continue;water++;if(!f.ok[k])cloud++;if(c.coast<2.4)adj++;if(f.unc[k]>0.7&&f.ok[k])absaer++;}
+  const rows=[["usable",100*(water-cloud)/water,"#78c448"],["cloud / flagged",100*cloud/water,"#5b6f78"],["coast-adjacent",100*adj/water,"#e0a064"],["low confidence",100*absaer/water,"#b56cff"]];
+  x.font="11px IBM Plex Sans, sans-serif";const bw=w-120;rows.forEach((r,i)=>{const yy=8+i*20;x.fillStyle="#b7c6d2";x.fillText(r[0],0,yy+10);x.fillStyle="#1d2b38";x.fillRect(100,yy,bw,12);x.fillStyle=r[2];x.fillRect(100,yy,bw*r[1]/100,12);x.fillStyle="#dbe6ee";x.font="10px IBM Plex Mono, monospace";x.fillText(r[1].toFixed(0)+" %",104+bw*r[1]/100,yy+10);x.font="11px IBM Plex Sans, sans-serif";});}
+
+// ======================= STATE / UI =======================
+let day=200, selected=0, playing=false;const cur={f:null,dob:null};
+const dateEl=document.getElementById("date"), slider=document.getElementById("day");
+function fmtDate(d){const t=new Date(Date.UTC(2025,0,1+d));return t.toISOString().slice(0,10);}
+function update(){const f=dayFields(day),dob=bottomDO(day);cur.f=f;cur.dob=dob;
+  paintSurface(f);paintHypoxia(dob);paintStations(day);
+  const k=kpi[day];document.getElementById("k-chl").textContent=k.chlT.toFixed(1);document.getElementById("k-sag").textContent=k.chlS.toFixed(2);
+  document.getElementById("k-hyp").textContent=k.hypKm2.toFixed(0);document.getElementById("k-hyp-box").classList.toggle("alert",k.hypKm2>150);
+  document.getElementById("k-good").textContent=k.good.toFixed(0);
+  dateEl.textContent=fmtDate(day);slider.value=day;
+  drawHov(day);drawSeries("c-chl",day,selected,"chl");drawSeries("c-do",day,selected,"do");drawFlags(day);
+  document.getElementById("sel-name").innerHTML="<b>"+STATIONS[selected].name+"</b> · in-situ "+series[selected].insitu[day].toFixed(1)+" µg/L"+(isFinite(series[selected].sat[day])?" · satellite "+series[selected].sat[day].toFixed(1):" · no clear pixel today");}
+slider.addEventListener("input",()=>{day=+slider.value;update();});
+const playBtn=document.getElementById("play");playBtn.addEventListener("click",()=>{playing=!playing;playBtn.textContent=playing?"❚❚ Pause":"▶ Play";});
+let tick=0;function loop(){requestAnimationFrame(loop);if(playing&&(tick++%6===0)){day=(day+ +document.getElementById("speed").value)%DAYS;update();}renderer.render(scene,camera);}
+// layer toggles
+document.getElementById("l-surface").onchange=e=>surf.visible=e.target.checked;
+document.getElementById("l-unc").onchange=e=>{useUnc=e.target.checked;update();};
+document.getElementById("l-hypox").onchange=e=>hypMesh.visible=e.target.checked;
+document.getElementById("l-stations").onchange=e=>stGroup.visible=e.target.checked;
+document.getElementById("l-bathy").onchange=e=>bathy.visible=e.target.checked;
+// orbit + picking
+const cvs=renderer.domElement;let drag=null;
+cvs.addEventListener("pointerdown",e=>{drag={x:e.clientX,y:e.clientY,b:e.button,moved:false};cvs.setPointerCapture(e.pointerId);});
+cvs.addEventListener("pointermove",e=>{if(drag){const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(dx)+Math.abs(dy)>3)drag.moved=true;
+    if(drag.b===2||e.shiftKey){const s=dist/600;const right=new THREE.Vector3(Math.cos(az),Math.sin(az),0);const fwd=new THREE.Vector3(-Math.sin(az),Math.cos(az),0);target.addScaledVector(right,-dx*s).addScaledVector(fwd,dy*s);}
+    else{az-=dx*0.006;el=Math.max(0.15,Math.min(1.5,el+dy*0.006));}
+    drag.x=e.clientX;drag.y=e.clientY;placeCamera();}
+  else hover(e);});
+cvs.addEventListener("pointerup",e=>{if(drag&&!drag.moved)pick(e);drag=null;});
+cvs.addEventListener("contextmenu",e=>e.preventDefault());
+cvs.addEventListener("wheel",e=>{e.preventDefault();dist=Math.max(25,Math.min(400,dist*(1+Math.sign(e.deltaY)*0.08)));placeCamera();},{passive:false});
+const ray=new THREE.Raycaster(),mouse=new THREE.Vector2(),tip=document.getElementById("tip");
+function ndc(e){const r=cvs.getBoundingClientRect();mouse.set(((e.clientX-r.left)/r.width)*2-1,-((e.clientY-r.top)/r.height)*2+1);ray.setFromCamera(mouse,camera);}
+function pick(e){ndc(e);const hits=ray.intersectObjects(stMeshes);if(hits.length){selected=hits[0].object.userData.i;update();}}
+function hover(e){ndc(e);const hs=ray.intersectObjects(stMeshes);
+  if(hs.length){const i=hs[0].object.userData.i,s=series[i];tip.style.display="block";tip.style.left=(e.clientX-cvs.getBoundingClientRect().left+14)+"px";tip.style.top=(e.clientY-cvs.getBoundingClientRect().top+14)+"px";
+    tip.innerHTML="<b>"+STATIONS[i].name+"</b><br><span class=m>in-situ Chl-a "+s.insitu[day].toFixed(1)+" µg/L · bottom DO "+s.dob[day].toFixed(1)+" mg/L"+(isFinite(s.sat[day])?" · sat "+s.sat[day].toFixed(1):"")+"</span>";return;}
+  const hb=ray.intersectObject(surf);
+  if(hb.length){const p=hb[0].point;const lon=LON0+(p.x+((LON1-LON0)*KX)/2)/KX,lat=LAT0+(p.y+((LAT1-LAT0)*KY)/2)/KY;const k=cellIndexOf(lon,lat),c=cell[k];
+    if(c.water){const f=cur.f,dob=cur.dob;tip.style.display="block";tip.style.left=(e.clientX-cvs.getBoundingClientRect().left+14)+"px";tip.style.top=(e.clientY-cvs.getBoundingClientRect().top+14)+"px";
+      tip.innerHTML="<b>"+(c.bay==="tokyo"?"Tokyo Bay":"Sagami Bay")+"</b> "+lat.toFixed(3)+"N "+lon.toFixed(3)+"E<br><span class=m>"+(f.ok[k]?"Chl-a "+f.chl[k].toFixed(1)+" µg/L ± conf "+((1-f.unc[k])*100).toFixed(0)+"%":"cloud / flagged")+" · depth "+c.depth.toFixed(0)+" m"+(c.bay==="tokyo"?" · bottom DO "+dob[k].toFixed(1):"")+"</span>";return;}}
+  tip.style.display="none";}
+function resize(){const r=sceneEl.getBoundingClientRect();renderer.setSize(r.width,r.height,false);camera.aspect=r.width/r.height;camera.updateProjectionMatrix();update();}
+window.addEventListener("resize",resize);
+placeCamera();resize();loop();
+}
+</script>
