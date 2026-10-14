@@ -1,35 +1,37 @@
 # dualbay
 
-Water quality retrieval and digital twin framework for **Tokyo Bay** and **Sagami Bay**.
-Research project at Yokohama National University (Higa Lab), 2026–2029. Author: Lilya Javadova. License: MIT.
+Water quality retrieval and digital twin framework for **Tokyo Bay** and **Sagami Bay**
+from PACE OCI hyperspectral imagery and in-situ monitoring data.
+Research project at Yokohama National University (Higa Laboratory), 2026–2029.
+Author: Lilya Javadova. License: MIT.
 
-This first version covers the kenkyusei-period groundwork (Oct–Nov 2026):
-study area zones, in-situ data parsing, satellite scene inventory, and matchup counting —
-the inputs for the **data availability report** that decides the main sensor.
+The package covers the whole path from raw data to results: study-area zones, PACE granule
+reading, in-situ parsing, satellite–station matchups, a small database, baseline algorithms,
+optical water types, a retrieval model with per-pixel uncertainty, transfer experiments,
+lag analysis between surface chlorophyll and bottom oxygen, and an export for Power BI.
+Every step runs offline on synthetic data (`dualbay demo`), so the chain is tested before
+real data arrive.
 
 ## Repository map
 
-- `src/dualbay/` — analysis chain (PACE reader, in-situ parser, matchups, store, baselines, OWT, uncertainty model, transfer experiments, lag analysis, Power BI export)
-- `tests/` — 12 automated tests, all offline (`pytest`)
-- `docs/` — architecture and methods text
-- `prototype/` — 3D prototype of the twin on **synthetic data**
-- `config/` — study-area zones, sensors, stations, in-situ header keywords
+| Path | What it holds |
+|---|---|
+| `src/dualbay/` | the analysis chain (module list below) |
+| `config/` | study-area zones, sensors, stations, header keywords for in-situ files |
+| `tests/` | 12 automated tests, all offline (`pytest`) |
+| `docs/` | `ARCHITECTURE.md` (data flow, design decisions, limits), `METHODS.md` (methods text) |
+| `prototype/` | 3D prototype of the twin on **synthetic data** |
+| `data/` | raw and processed data (git-ignored) |
 
 ## Setup
 
 ```bash
-# with uv (recommended)
-uv venv && source .venv/bin/activate
-uv pip install -e ".[dev,inventory]"
-
-# or with pip
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,inventory]"
-
-pytest            # 12 tests, all offline, should pass
+python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
+pip install -e ".[dev,inventory,pace]"
+pytest                                                 # 12 tests, all offline
 ```
 
-For PACE searches, put your NASA Earthdata login in `~/.netrc`:
+For PACE access, put your NASA Earthdata login in `~/.netrc` (never in the repository):
 ```
 machine urs.earthdata.nasa.gov login YOUR_USER password YOUR_PASSWORD
 ```
@@ -37,7 +39,7 @@ machine urs.earthdata.nasa.gov login YOUR_USER password YOUR_PASSWORD
 ## Workflow
 
 ```bash
-# 1. Study area zones → data/processed/study_area.geojson
+# 1. Study-area zones → data/processed/study_area.geojson
 dualbay study-area
 #    with a land mask (OSM land polygons or GSHHG as GeoJSON, clipped to the region):
 dualbay study-area --coastline data/raw/land.geojson
@@ -49,28 +51,19 @@ dualbay parse-insitu data/raw/insitu/*.csv
 
 # 3. Scene inventory over both bays (Sentinel-2/3 via Copernicus STAC, PACE via Earthdata)
 dualbay inventory --start 2024-03-01 --end 2026-09-30 --sensors s3_olci pace_oci
-#    SGLI / PRISMA / HISUI: export the scene list from the portal and load it with
-#    dualbay.inventory.load_manual_list()
 
 # 4. Matchups (±3 h, surface layer, QC ok) and the summary table
 dualbay matchups --insitu data/processed/insitu.csv --scenes data/processed/scenes.csv
 ```
 
-`data/processed/matchup_summary.csv` gives matchups per sensor × bay × parameter —
-the core table of the data availability report.
-
-## PACE first look (week of 7 Oct 2026)
-
-Three figures for the lab meeting: clear-scene availability per month, Rrs spectra per zone,
-and the standard NASA chlorophyll at monitoring posts.
+## PACE OCI
 
 ```bash
-pip install -e ".[pace]"
-
 # quick test: 5 granules
 dualbay pace --start 2025-07-01 --end 2025-08-31 --limit 5
 
-# spectra for one year (Rrs + Rrs_unc, PACE_OCI_L2_AOP v3.1) — each granule is downloaded to a temp dir, the bay subset read, the file deleted
+# reflectance for one year (Rrs + Rrs_unc, PACE_OCI_L2_AOP) —
+# each granule is downloaded to a temporary folder, the bay subset is read, the file is deleted
 dualbay pace --start 2025-01-01 --end 2025-12-31 --max-cloud 70
 
 # standard chlorophyll (PACE_OCI_L2_BGC) for the same period
@@ -85,7 +78,7 @@ keeps what it already read. Each figure also gets a CSV with the numbers behind 
 `--max-cloud` filters on the cloud cover of the whole granule (a wide swath), not of the bay;
 the per-zone clear fraction in `zone_spectra.csv` is the real measure.
 
-## Full chain (after the PACE first look)
+## Analysis chain
 
 ```bash
 # 1. put everything into the store (idempotent; re-run any time)
@@ -107,11 +100,10 @@ dualbay export
 dualbay demo
 ```
 
-Docs: `docs/ARCHITECTURE.md` (data flow, design decisions, error handling, known limits),
-`docs/METHODS.md` (report-ready methods text). Dashboard: load `data/processed/powerbi/*.csv`
-into Power BI, create the relationships listed at the top of `measures.dax`, paste the measures.
+Dashboard: load `data/processed/powerbi/*.csv` into Power BI, create the relationships listed
+at the top of `measures.dax`, paste the measures.
 
-## Layout
+## Modules
 
 ```
 config/
@@ -124,35 +116,33 @@ src/dualbay/
   insitu.py            CSV/Excel → long table (station, time JST, layer, depth, param, value, unit, qc)
   inventory.py         scene search (CDSE STAC, Earthdata) and manual scene lists
   matchup.py           scene–station pairing, summary, Bailey & Werdell (2006) window statistics
-  pace.py              PACE OCI L2: remote subset reading, zone spectra, pixel budget, station values
-  flags.py             NASA l2_flags: standard mask, per-zone flag fractions (ABSAER, LOWLW, ...)
-  figures.py           first-look figures from the PACE tables
+  pace.py              PACE OCI L2: download → bay subset → zone spectra, pixel budget, station values
+  flags.py             NASA l2_flags: bit table from the file, standard mask, per-zone flag fractions
+  figures.py           summary figures from the PACE tables
   db.py / schema.sql   SQLite star schema and idempotent loaders
-  baseline.py          OCx, CI, 3-band, NDCI, Nechad, Dogliotti; local recalibration; metrics incl. MdSA, PICP
+  baseline.py          OCx, CI, 3-band, NDCI, Nechad, Dogliotti; local recalibration; accuracy metrics
   owt.py               optical water types (k-means, silhouette), novelty flag, coverage table
   models.py            random-forest retrieval with per-pixel 68 % interval and calibration check
   transfer.py          temporal holdout, static vs adaptive, spatial transfer, learning curve
   lag.py               surface Chl-a vs bottom DO lags, hypoxia events, lead time, blue-tide index
   export.py            Power BI tables + DAX measures
   demo.py              synthetic end-to-end run
-  cli.py               `dualbay` command
-tests/                 12 tests: parser, matchups, PACE reader, flags, store, baselines, OWT, models, transfer, lag, export
-data/                  raw/ and processed/ (git-ignored)
+  cli.py               the `dualbay` command
 ```
 
-## Before real matchups
+## Notes before real matchups
 
-- **Station coordinates** in `config/stations.yaml` are approximate (`coord_verified: false`).
-  Replace them with official values from the MLIT Kanto Regional Bureau monitoring reports
-  or the data files. For a 300 m OLCI pixel, a 1 km error already matters.
+- **Station coordinates** in `config/stations.yaml` are approximate except Kemigawa
+  (`coord_verified: false`). Replace them with official values from the station documents.
 - **Header keywords**: if `parse-insitu` reports "No parameter columns recognised", add the
   file's header words to `config/insitu_columns.yaml`.
-- PACE OCI L2 AOP v3.1 Rrs is a *provisional* product (NASA: biased low ~0.001 sr⁻¹ vs AERONET-OC; largest errors at 400–413 nm in complex waters). Record `product_version` and never mix v3.1 with later reprocessings in one analysis.
-- ABSAER and ATMWARN pixels are kept (reported per zone), because absorbing-aerosol errors over Tokyo Bay are the research object (Higa et al. 2024). Use `pace.MASK_EXTRA = ("ABSAER", "ATMWARN")` for a conservative run.
+- **PACE product versions**: the L2 AOP product is still provisional and is reprocessed from time
+  to time (v3.1 → v3.2 in 2026, Version 4 announced). `product_version` is recorded for every
+  granule; never mix versions in one analysis.
+- **Spectral range**: the standard L2 reflectance ends at 719 nm. Algorithms that need
+  near-infrared bands (3-band, Dogliotti, Nechad-865) require Level-1B processing with ACOLITE.
+- **Flags**: ABSAER (absorbing aerosol) pixels are kept and reported per zone because they are the
+  research object over Tokyo Bay. Use `pace.MASK_EXTRA = ("ABSAER", "ATMWARN")` for a
+  conservative run.
 - The in-situ parser keeps only surface/upper-layer values (or depth ≤ 2 m) for matchups;
   bottom-layer DO stays in the table for the hypoxia work but is not paired with satellite data.
-
-## Next modules (planned)
-
-`preprocess/` ACOLITE runs and masks · `baseline/` OCx, CI, 3-band, NDCI, Nechad, Dogliotti ·
-`owt/` optical water types · `models/` PLSR, RF, GP, PINN · `dt/` assimilation and forecast.

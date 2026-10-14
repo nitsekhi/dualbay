@@ -45,7 +45,9 @@ def daily_series(insitu: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def lagged_correlation(daily: pd.DataFrame, max_lag: int = 30, months=(5, 6, 7, 8, 9, 10), min_n: int = 40) -> pd.DataFrame:
+def lagged_correlation(
+    daily: pd.DataFrame, max_lag: int = 30, months=(5, 6, 7, 8, 9, 10), min_n: int = 40
+) -> pd.DataFrame:
     """Pearson r between surface chl at day t and bottom DO at day t+lag. Negative r at positive lag = chl leads a DO drop."""
     rows = []
     for stn, g in daily.groupby("station"):
@@ -56,15 +58,25 @@ def lagged_correlation(daily: pd.DataFrame, max_lag: int = 30, months=(5, 6, 7, 
             ok = x.notna() & y.notna()
             if ok.sum() < min_n:
                 continue
-            rows.append({"station": stn, "lag_days": lag, "n": int(ok.sum()), "r": float(np.corrcoef(x[ok], y[ok])[0, 1])})
+            rows.append(
+                {
+                    "station": stn,
+                    "lag_days": lag,
+                    "n": int(ok.sum()),
+                    "r": float(np.corrcoef(x[ok], y[ok])[0, 1]),
+                }
+            )
     out = pd.DataFrame(rows)
     if out.empty:
         return out
-    best = out.loc[out.groupby("station")["r"].idxmin(), ["station", "lag_days", "r"]].rename(columns={"lag_days": "best_lag", "r": "best_r"})
+    best = out.loc[out.groupby("station")["r"].idxmin(), ["station", "lag_days", "r"]].rename(
+        columns={"lag_days": "best_lag", "r": "best_r"}
+    )
     return out.merge(best, on="station")
 
 
 def hypoxia_events(daily: pd.DataFrame, threshold: float = HYPOXIA_MGL, min_days: int = 3) -> pd.DataFrame:
+    """Find runs of at least `min_days` consecutive days with bottom DO below `threshold`, per station."""
     rows = []
     for stn, g in daily.groupby("station"):
         g = g.set_index("date").asfreq("D")
@@ -76,15 +88,24 @@ def hypoxia_events(daily: pd.DataFrame, threshold: float = HYPOXIA_MGL, min_days
                 while j + 1 < len(low) and low[j + 1]:
                     j += 1
                 if j - i + 1 >= min_days:
-                    rows.append({"station": stn, "onset": g.index[i], "end": g.index[j], "days": j - i + 1,
-                                 "min_do": float(np.nanmin(g["do_bottom"].iloc[i:j + 1]))})
+                    rows.append(
+                        {
+                            "station": stn,
+                            "onset": g.index[i],
+                            "end": g.index[j],
+                            "days": j - i + 1,
+                            "min_do": float(np.nanmin(g["do_bottom"].iloc[i : j + 1])),
+                        }
+                    )
                 i = j + 1
             else:
                 i += 1
     return pd.DataFrame(rows)
 
 
-def event_lead_time(daily: pd.DataFrame, events: pd.DataFrame, window: int = 30, peak_quantile: float = 0.9) -> pd.DataFrame:
+def event_lead_time(
+    daily: pd.DataFrame, events: pd.DataFrame, window: int = 30, peak_quantile: float = 0.9
+) -> pd.DataFrame:
     """Days between the last surface-chl peak (above the station's seasonal 90th percentile) and hypoxia onset."""
     rows = []
     for ev in events.itertuples(index=False):
@@ -92,10 +113,16 @@ def event_lead_time(daily: pd.DataFrame, events: pd.DataFrame, window: int = 30,
         thr = g.quantile(peak_quantile)
         before = g[(g.index < ev.onset) & (g.index >= ev.onset - pd.Timedelta(days=window))]
         peaks = before[before >= thr]
-        rows.append({"station": ev.station, "onset": ev.onset, "days": ev.days,
-                     "chl_peak_date": peaks.index.max() if len(peaks) else pd.NaT,
-                     "lead_days": (ev.onset - peaks.index.max()).days if len(peaks) else np.nan,
-                     "chl_peak": float(peaks.max()) if len(peaks) else np.nan})
+        rows.append(
+            {
+                "station": ev.station,
+                "onset": ev.onset,
+                "days": ev.days,
+                "chl_peak_date": peaks.index.max() if len(peaks) else pd.NaT,
+                "lead_days": (ev.onset - peaks.index.max()).days if len(peaks) else np.nan,
+                "chl_peak": float(peaks.max()) if len(peaks) else np.nan,
+            }
+        )
     return pd.DataFrame(rows)
 
 

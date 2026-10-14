@@ -1,9 +1,9 @@
 """Command line: `dualbay <command>`.
 
-  dualbay study-area   [--coastline land.geojson] [--out data/processed/study_area.geojson]
-  dualbay parse-insitu FILE [FILE ...] [--station ID] [--out data/processed/insitu.csv]
-  dualbay inventory    --start 2024-03-01 --end 2026-09-30 [--sensors s3_olci pace_oci] [--out ...]
-  dualbay matchups     --insitu data/processed/insitu.csv --scenes data/processed/scenes.csv [--out ...]
+dualbay study-area   [--coastline land.geojson] [--out data/processed/study_area.geojson]
+dualbay parse-insitu FILE [FILE ...] [--station ID] [--out data/processed/insitu.csv]
+dualbay inventory    --start 2024-03-01 --end 2026-09-30 [--sensors s3_olci pace_oci] [--out ...]
+dualbay matchups     --insitu data/processed/insitu.csv --scenes data/processed/scenes.csv [--out ...]
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ PROCESSED = Path("data/processed")
 
 
 def _save(df: pd.DataFrame, out: str | Path) -> None:
+    """Write a table to CSV, creating the folder if needed, and report the row count."""
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out, index=False)
@@ -26,13 +27,17 @@ def _save(df: pd.DataFrame, out: str | Path) -> None:
 
 
 def cmd_study_area(a):
+    """`dualbay study-area`: write the five zones as GeoJSON (optionally clipped to water)."""
     zs = study_area.zones()
     if a.coastline:
-        zs = study_area.clip_to_water(zs, study_area.load_land(a.coastline, config.load("study_area")["bbox"]))
+        zs = study_area.clip_to_water(
+            zs, study_area.load_land(a.coastline, config.load("study_area")["bbox"])
+        )
     print(f"Saved {len(zs)} zones → {study_area.to_geojson(zs, a.out)}")
 
 
 def cmd_parse_insitu(a):
+    """`dualbay parse-insitu`: parse downloaded station files into one long table."""
     if a.station:
         df = pd.concat([insitu.parse_file(f, station=a.station) for f in a.files], ignore_index=True)
     else:
@@ -42,10 +47,12 @@ def cmd_parse_insitu(a):
 
 
 def cmd_inventory(a):
+    """`dualbay inventory`: list satellite scenes over the study area for a date range."""
     _save(inventory.build(a.start, a.end, a.sensors), a.out)
 
 
 def cmd_matchups(a):
+    """`dualbay matchups`: pair scenes with station observations and print the summary table."""
     obs = pd.read_csv(a.insitu, parse_dates=["time"])
     obs["time"] = pd.to_datetime(obs["time"], utc=True).dt.tz_convert(insitu.TZ)
     scenes = pd.read_csv(a.scenes)
@@ -57,15 +64,19 @@ def cmd_matchups(a):
 
 
 def cmd_pace(a):
+    """`dualbay pace`: read PACE granules (searched or given as files) and write the zone/station tables."""
     from . import pace
 
     if a.files:
         pace.process_files(a.files, a.out)
     else:
-        pace.process(a.start, a.end, pace.AOP if a.product == "aop" else pace.BGC, a.max_cloud, a.limit, a.out)
+        pace.process(
+            a.start, a.end, pace.AOP if a.product == "aop" else pace.BGC, a.max_cloud, a.limit, a.out
+        )
 
 
 def cmd_figures(a):
+    """`dualbay figures`: draw the summary figures from the PACE tables."""
     from . import figures
 
     for p in figures.make_all(a.pace_dir, a.out):
@@ -103,7 +114,10 @@ def cmd_analyze(a):
             raise SystemExit(f"only {len(tbl)} matchups with spectra for {a.param}; need ≥ 40")
         scheme = owt.OWTScheme().fit(tbl).fit_thresholds(tbl)
         tbl = tbl.drop(columns=["owt"]).join(scheme.predict(tbl))
-        con.executemany("UPDATE matchup SET owt=? WHERE matchup_id=?", [(int(o), int(i)) for o, i in zip(tbl["owt"], tbl["matchup_id"])])
+        con.executemany(
+            "UPDATE matchup SET owt=? WHERE matchup_id=?",
+            [(int(o), int(i)) for o, i in zip(tbl["owt"], tbl["matchup_id"])],
+        )
         scheme.describe().to_csv(out / "owt_centres.csv")
         src = tbl[tbl["bay"] == a.train_bay]
         years = sorted(src["scene_time"].dt.year.unique())
@@ -120,24 +134,44 @@ def cmd_analyze(a):
         pred = rf.predict(te)
         run = db.new_run(con, "rf_owt", a.param, 3, f"{a.train_bay} {train_years}")
         db.save_predictions(con, run, te["matchup_id"], pred["y_pred"], pred["y_lo"], pred["y_hi"])
-        db.save_metrics(con, run, f"split:test_{test_year}", baseline.metrics(te["y"], pred["y_pred"], pred["y_lo"], pred["y_hi"]))
+        db.save_metrics(
+            con,
+            run,
+            f"split:test_{test_year}",
+            baseline.metrics(te["y"], pred["y_pred"], pred["y_lo"], pred["y_hi"]),
+        )
         rf.importance().to_csv(out / "feature_importance.csv")
         models.calibration_table(te["y"], pred).to_csv(out / "calibration.csv", index=False)
-        transfer.temporal_holdout(src, train_years, test_year).to_csv(out / "temporal_holdout.csv", index=False)
-        transfer.static_vs_adaptive(src, train_years, test_year).to_csv(out / "static_vs_adaptive.csv", index=False)
+        transfer.temporal_holdout(src, train_years, test_year).to_csv(
+            out / "temporal_holdout.csv", index=False
+        )
+        transfer.static_vs_adaptive(src, train_years, test_year).to_csv(
+            out / "static_vs_adaptive.csv", index=False
+        )
         other = [b for b in tbl["bay"].unique() if b != a.train_bay]
         for b in other:
             try:
                 sp = transfer.spatial_transfer(tbl, a.train_bay, b, scheme)
                 sp["coverage"].to_csv(out / f"owt_coverage_{a.train_bay}_to_{b}.csv")
-                pd.DataFrame([{"experiment": sp["experiment"], "share_novel_owt": sp["share_novel"], **sp["metrics_all"]}]).to_csv(out / f"spatial_transfer_{a.train_bay}_to_{b}.csv", index=False)
-                transfer.learning_curve(tbl, a.train_bay, b).to_csv(out / f"learning_curve_{a.train_bay}_to_{b}.csv")
+                pd.DataFrame(
+                    [
+                        {
+                            "experiment": sp["experiment"],
+                            "share_novel_owt": sp["share_novel"],
+                            **sp["metrics_all"],
+                        }
+                    ]
+                ).to_csv(out / f"spatial_transfer_{a.train_bay}_to_{b}.csv", index=False)
+                transfer.learning_curve(tbl, a.train_bay, b).to_csv(
+                    out / f"learning_curve_{a.train_bay}_to_{b}.csv"
+                )
             except ValueError as err:
                 print(f"spatial transfer {a.train_bay} → {b} skipped: {err}")
     print(f"Results in {out}")
 
 
 def cmd_lag(a):
+    """`dualbay lag`: surface chlorophyll vs bottom oxygen lags, hypoxia events and lead times."""
     from . import lag
 
     ins = pd.read_csv(a.insitu, parse_dates=["time"])
@@ -153,6 +187,7 @@ def cmd_lag(a):
 
 
 def cmd_export(a):
+    """`dualbay export`: write the Power BI tables and the DAX measures file."""
     from . import export
 
     for p in export.export(a.db, a.out):
@@ -160,6 +195,7 @@ def cmd_export(a):
 
 
 def cmd_demo(a):
+    """`dualbay demo`: run the whole chain on synthetic data."""
     import logging
 
     from . import demo
@@ -171,6 +207,7 @@ def cmd_demo(a):
 
 
 def main(argv=None):
+    """Parse the command line and dispatch to the `cmd_*` function for the chosen sub-command."""
     p = argparse.ArgumentParser(prog="dualbay", description="Tokyo Bay + Sagami Bay water quality toolkit")
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -202,7 +239,9 @@ def main(argv=None):
     s = sub.add_parser("pace", help="PACE OCI L2: zone spectra and station values over the bays")
     s.add_argument("--start", default="2024-04-01")
     s.add_argument("--end", default="2026-09-30")
-    s.add_argument("--product", choices=["aop", "bgc"], default="aop", help="aop = Rrs spectra, bgc = chlor_a")
+    s.add_argument(
+        "--product", choices=["aop", "bgc"], default="aop", help="aop = Rrs spectra, bgc = chlor_a"
+    )
     s.add_argument("--max-cloud", type=float, default=80, help="granule-wide cloud cover limit, %%")
     s.add_argument("--limit", type=int, help="max number of granules (for a quick test)")
     s.add_argument("--files", nargs="*", help="local .nc files instead of a remote search")
@@ -216,8 +255,11 @@ def main(argv=None):
 
     s = sub.add_parser("load", help="Load processed CSVs into the SQLite store")
     s.add_argument("--db", default="data/dualbay.sqlite")
-    s.add_argument("--insitu"); s.add_argument("--scenes"); s.add_argument("--zone-spectra", dest="zone_spectra")
-    s.add_argument("--station-values", dest="station_values"); s.add_argument("--matchups")
+    s.add_argument("--insitu")
+    s.add_argument("--scenes")
+    s.add_argument("--zone-spectra", dest="zone_spectra")
+    s.add_argument("--station-values", dest="station_values")
+    s.add_argument("--matchups")
     s.set_defaults(func=cmd_load)
 
     s = sub.add_parser("analyze", help="Baselines, uncertainty model and transfer experiments from the store")

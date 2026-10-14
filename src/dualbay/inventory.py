@@ -21,7 +21,10 @@ CDSE_STAC = "https://stac.dataspace.copernicus.eu/v1"
 COLUMNS = ["sensor", "scene_id", "time", "cloud_pct", "lon_min", "lat_min", "lon_max", "lat_max"]
 
 
-def search_cdse(sensor_id: str, spec: dict, bbox, start: str, end: str, max_items: int = 5000) -> pd.DataFrame:
+def search_cdse(
+    sensor_id: str, spec: dict, bbox, start: str, end: str, max_items: int = 5000
+) -> pd.DataFrame:
+    """Query the Copernicus Data Space STAC catalogue (Sentinel-2/3) for scenes over the bounding box."""
     from pystac_client import Client  # optional dependency
 
     client = Client.open(CDSE_STAC)
@@ -29,7 +32,11 @@ def search_cdse(sensor_id: str, spec: dict, bbox, start: str, end: str, max_item
     if "max_cloud_pct" in spec:
         query["eo:cloud_cover"] = {"lte": spec["max_cloud_pct"]}
     search = client.search(
-        collections=[spec["collection"]], bbox=bbox, datetime=f"{start}/{end}", max_items=max_items, query=query or None
+        collections=[spec["collection"]],
+        bbox=bbox,
+        datetime=f"{start}/{end}",
+        max_items=max_items,
+        query=query or None,
     )
     rows = []
     for item in search.items():
@@ -40,23 +47,32 @@ def search_cdse(sensor_id: str, spec: dict, bbox, start: str, end: str, max_item
                 "scene_id": item.id,
                 "time": item.datetime,
                 "cloud_pct": item.properties.get("eo:cloud_cover"),
-                "lon_min": b[0], "lat_min": b[1], "lon_max": b[2], "lat_max": b[3],
+                "lon_min": b[0],
+                "lat_min": b[1],
+                "lon_max": b[2],
+                "lat_max": b[3],
             }
         )
     return pd.DataFrame(rows, columns=COLUMNS)
 
 
 def search_earthdata(sensor_id: str, spec: dict, bbox, start: str, end: str) -> pd.DataFrame:
+    """Query NASA Earthdata (PACE and other OB.DAAC collections) for granules over the bounding box."""
     import earthaccess  # optional dependency
 
     earthaccess.login(strategy="netrc")
-    results = earthaccess.search_data(short_name=spec["short_name"], bounding_box=tuple(bbox), temporal=(start, end))
+    results = earthaccess.search_data(
+        short_name=spec["short_name"], bounding_box=tuple(bbox), temporal=(start, end)
+    )
     rows = []
     for g in results:
         umm = g["umm"]
         t = umm["TemporalExtent"]["RangeDateTime"]["BeginningDateTime"]
         rect = (
-            umm.get("SpatialExtent", {}).get("HorizontalSpatialDomain", {}).get("Geometry", {}).get("BoundingRectangles")
+            umm.get("SpatialExtent", {})
+            .get("HorizontalSpatialDomain", {})
+            .get("Geometry", {})
+            .get("BoundingRectangles")
             or [{}]
         )[0]
         rows.append(
@@ -65,14 +81,18 @@ def search_earthdata(sensor_id: str, spec: dict, bbox, start: str, end: str) -> 
                 "scene_id": umm.get("GranuleUR"),
                 "time": t,
                 "cloud_pct": umm.get("CloudCover"),
-                "lon_min": rect.get("WestBoundingCoordinate"), "lat_min": rect.get("SouthBoundingCoordinate"),
-                "lon_max": rect.get("EastBoundingCoordinate"), "lat_max": rect.get("NorthBoundingCoordinate"),
+                "lon_min": rect.get("WestBoundingCoordinate"),
+                "lat_min": rect.get("SouthBoundingCoordinate"),
+                "lon_max": rect.get("EastBoundingCoordinate"),
+                "lat_max": rect.get("NorthBoundingCoordinate"),
             }
         )
     return pd.DataFrame(rows, columns=COLUMNS)
 
 
-def load_manual_list(path: str | Path, sensor_id: str, time_col: str = "time", id_col: str = "scene_id") -> pd.DataFrame:
+def load_manual_list(
+    path: str | Path, sensor_id: str, time_col: str = "time", id_col: str = "scene_id"
+) -> pd.DataFrame:
     """Load a scene list exported from a portal (G-Portal, PRISMA, Tellus). Needs at least a time and an id column."""
     df = pd.read_csv(path)
     out = pd.DataFrame({"sensor": sensor_id, "scene_id": df[id_col], "time": df[time_col]})

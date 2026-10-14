@@ -23,7 +23,14 @@ from . import config
 TZ = "Asia/Tokyo"
 MISSING = {"", "-", "--", "---", "*", "**", "///", "欠測", "欠", "調整中", "点検中", "nan", "NaN", "null"}
 # Layer words used in Japanese monitoring tables → English labels
-LAYERS = {"表層": "surface", "上層": "upper", "中層": "middle", "下層": "lower", "底層": "bottom", "底": "bottom"}
+LAYERS = {
+    "表層": "surface",
+    "上層": "upper",
+    "中層": "middle",
+    "下層": "lower",
+    "底層": "bottom",
+    "底": "bottom",
+}
 ENCODINGS = ("utf-8-sig", "cp932", "euc_jp")
 
 
@@ -93,6 +100,7 @@ def classify_columns(headers: list[str], cols_cfg: dict) -> dict[int, tuple[str,
 
 
 def _to_float(series: pd.Series) -> pd.Series:
+    """Convert a text column to numbers: Japanese/English missing markers → NaN, quality flags such as '12.3*' stripped."""
     s = series.astype(str).map(norm)
     s = s.where(~s.isin({norm(m) for m in MISSING}))
     s = s.str.replace(r"[^0-9eE+\-.]", "", regex=True)  # drop flags such as "12.3*"
@@ -100,6 +108,7 @@ def _to_float(series: pd.Series) -> pd.Series:
 
 
 def _parse_time(df: pd.DataFrame, roles: dict[int, tuple[str, str | None]]) -> pd.Series:
+    """Build one timezone-aware JST timestamp column from the date/time columns found in the file (24:00 → next day 00:00)."""
     by_role = {r: i for i, (r, _) in roles.items()}
     if "datetime" in by_role:
         raw = df.iloc[:, by_role["datetime"]].astype(str).map(norm)
@@ -131,8 +140,14 @@ def parse_file(path: str | Path, station: str | None = None, cols_cfg: dict | No
 
     time = _parse_time(df, roles)
     by_role = {r: i for i, (r, _) in roles.items()}
-    stn = df.iloc[:, by_role["station"]].map(norm) if "station" in by_role else pd.Series(station, index=df.index)
-    depth = _to_float(df.iloc[:, by_role["depth"]]) if "depth" in by_role else pd.Series(np.nan, index=df.index)
+    stn = (
+        df.iloc[:, by_role["station"]].map(norm)
+        if "station" in by_role
+        else pd.Series(station, index=df.index)
+    )
+    depth = (
+        _to_float(df.iloc[:, by_role["depth"]]) if "depth" in by_role else pd.Series(np.nan, index=df.index)
+    )
 
     frames = []
     for i, (param, layer) in params.items():

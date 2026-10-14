@@ -19,10 +19,12 @@ def test_flags_mask_and_fractions():
     assert flags.good_pixels(f, f.shape, "standard", extra=("ABSAER",)).sum() == 14
     fr = flags.flag_fractions(f, np.ones((4, 4), bool))
     assert fr["frac_absaer"] == pytest.approx(1 / 16) and fr["frac_turbidw"] == pytest.approx(1 / 16)
-    # bit table from the file's own flag_meanings (PACE OCI string, verified 2026)
-    fm = ("ATMFAIL LAND PRODWARN HIGLINT HILT HISATZEN COASTZ SPARE STRAYLIGHT CLDICE COCCOLITH TURBIDW HISOLZEN SPARE "
-          "LOWLW CHLFAIL NAVWARN ABSAER SPARE MAXAERITER MODGLINT CHLWARN ATMWARN OPSHAL SEAICE NAVFAIL FILTER SPARE "
-          "BOWTIEDEL HIPOL PRODFAIL SPARE")
+    # bit table read from the file's own flag_meanings attribute (PACE OCI L2 string)
+    fm = (
+        "ATMFAIL LAND PRODWARN HIGLINT HILT HISATZEN COASTZ SPARE STRAYLIGHT CLDICE COCCOLITH TURBIDW HISOLZEN SPARE "
+        "LOWLW CHLFAIL NAVWARN ABSAER SPARE MAXAERITER MODGLINT CHLWARN ATMWARN OPSHAL SEAICE NAVFAIL FILTER SPARE "
+        "BOWTIEDEL HIPOL PRODFAIL SPARE"
+    )
     masks = [1 << i for i in range(31)] + [-2147483648]
     tb = flags.from_file_attrs(fm, masks)
     assert tb["ABSAER"] == 17 and tb["OPSHAL"] == 23 and tb["NAVFAIL"] == 25 and "SPARE" not in tb
@@ -44,7 +46,7 @@ def test_baseline_tiers_and_metrics():
     test = _spectra(60, rng.lognormal(np.log(12), 0.6, 60), rng)
     tiers = baseline.run_tiers(train, test, "chl")
     ndci = tiers[tiers["algorithm"] == "ndci"].set_index("tier")
-    assert ndci.loc[2, "rmse"] < ndci.loc[1, "rmse"]          # local recalibration helps
+    assert ndci.loc[2, "rmse"] < ndci.loc[1, "rmse"]  # local recalibration helps
     m = baseline.metrics([1, 2, 4], [1.1, 1.8, 4.4], [0.9, 1.5, 3], [1.3, 2.5, 5])
     assert m["n"] == 3 and m["picp68"] == 1.0 and 0 < m["mdsa"] < 15
 
@@ -75,12 +77,17 @@ def test_transfer_experiments():
     th = transfer.temporal_holdout(tk, [2024, 2025], 2026)
     assert "all" in set(th["subset"]) and th.loc[th["subset"] == "all", "n"].iloc[0] == 150
     sva = transfer.static_vs_adaptive(tk, [2024, 2025], 2026)
-    assert len(sva) == tk[tk["scene_time"].dt.year == 2026]["scene_time"].dt.month.nunique() and sva["n_new_used"].iloc[0] == 0
+    assert (
+        len(sva) == tk[tk["scene_time"].dt.year == 2026]["scene_time"].dt.month.nunique()
+        and sva["n_new_used"].iloc[0] == 0
+    )
     sp = transfer.spatial_transfer(pd.concat([tk, sg], ignore_index=True), "tokyo", "sagami")
-    assert sp["share_novel"] > 0.5                                  # clean water is a new optical type for a Tokyo model
-    lc = transfer.learning_curve(pd.concat([tk, sg], ignore_index=True), "tokyo", "sagami", sizes=(0, 10, 30), repeats=2)
+    assert sp["share_novel"] > 0.5  # clean water is a new optical type for a Tokyo model
+    lc = transfer.learning_curve(
+        pd.concat([tk, sg], ignore_index=True), "tokyo", "sagami", sizes=(0, 10, 30), repeats=2
+    )
     r = lc[("rmse", "mean")]
-    assert r.iloc[-1] < r.iloc[0]                                   # local samples help
+    assert r.iloc[-1] < r.iloc[0]  # local samples help
 
 
 def test_lag_analysis_recovers_planted_lag():
@@ -94,7 +101,9 @@ def test_lag_analysis_recovers_planted_lag():
     for i, d in enumerate(days):
         rows.append(("s1", d, "surface", 0.5, "chl", chl[i], "ug/L", "ok", "t"))
         rows.append(("s1", d, "bottom", 10.0, "do", do[i], "mg/L", "ok", "t"))
-    ins = pd.DataFrame(rows, columns=["station", "time", "layer", "depth_m", "param", "value", "unit", "qc", "source_file"])
+    ins = pd.DataFrame(
+        rows, columns=["station", "time", "layer", "depth_m", "param", "value", "unit", "qc", "source_file"]
+    )
     daily = lag.daily_series(ins)
     lc = lag.lagged_correlation(daily, max_lag=20, min_n=30)
     assert 5 <= lc["best_lag"].iloc[0] <= 9
@@ -108,13 +117,23 @@ def test_lag_analysis_recovers_planted_lag():
 
 def test_store_and_export(tmp_path):
     dbp = tmp_path / "t.sqlite"
-    ins = pd.DataFrame({"station": ["kawasaki_island"] * 2, "time": pd.to_datetime(["2025-07-14 09:00", "2025-07-14 10:00"]).tz_localize("Asia/Tokyo"),
-                        "layer": ["upper", "upper"], "depth_m": [np.nan, np.nan], "param": ["chl", "chl"], "value": [21.5, 19.8],
-                        "unit": ["ug/L"] * 2, "qc": ["ok"] * 2, "source_file": ["f"] * 2})
+    ins = pd.DataFrame(
+        {
+            "station": ["kawasaki_island"] * 2,
+            "time": pd.to_datetime(["2025-07-14 09:00", "2025-07-14 10:00"]).tz_localize("Asia/Tokyo"),
+            "layer": ["upper", "upper"],
+            "depth_m": [np.nan, np.nan],
+            "param": ["chl", "chl"],
+            "value": [21.5, 19.8],
+            "unit": ["ug/L"] * 2,
+            "qc": ["ok"] * 2,
+            "source_file": ["f"] * 2,
+        }
+    )
     with db.connect(dbp) as con:
         db.load_dimensions(con)
         assert db.load_insitu(con, ins) == 2
-        assert db.load_insitu(con, ins) == 0                        # idempotent
+        assert db.load_insitu(con, ins) == 0  # idempotent
         with pytest.raises(ValueError):
             db.load_insitu(con, ins.assign(station="nowhere"))
         run = db.new_run(con, "ocx", "chl", 1)

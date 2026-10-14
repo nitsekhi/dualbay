@@ -31,28 +31,36 @@ RETRY_WAIT_S = 20
 AOP = "PACE_OCI_L2_AOP"
 BGC = "PACE_OCI_L2_BGC"
 LAND_BIT = 1 << flags.L2_FLAG_BITS["LAND"]
-REF_WL = 555.0             # band used to decide whether a pixel is valid
-BLUE_WL = (412.0, 443.0)   # bands checked for negative Rrs (atmospheric over-correction, Higa et al. 2024)
+REF_WL = 555.0  # band used to decide whether a pixel is valid
+BLUE_WL = (412.0, 443.0)  # bands checked for negative Rrs (atmospheric over-correction, Higa et al. 2024)
 MAX_STATION_DIST_KM = 1.5  # nearest pixel must be within this distance (OCI pixel ~1.2 km)
-MASK_LEVEL = "standard"    # flags.STANDARD_MASK; set "water" to keep more (riskier) pixels
-MASK_EXTRA = ()            # e.g. ("ABSAER", "ATMWARN") for a conservative run
-ACCESS_MODE = "download"   # "download": fetch granule to a temp dir, subset, delete (reliable outside AWS us-west-2)
-                           # "open": stream remotely (fast inside us-west-2, flaky elsewhere)
+MASK_LEVEL = "standard"  # flags.STANDARD_MASK; set "water" to keep more (riskier) pixels
+MASK_EXTRA = ()  # e.g. ("ABSAER", "ATMWARN") for a conservative run
+ACCESS_MODE = (
+    "download"  # "download": fetch granule to a temp dir, subset, delete (reliable outside AWS us-west-2)
+)
+# "open": stream remotely (fast inside us-west-2, flaky elsewhere)
 
 
 # ---------- search ----------
 
+
 def login():
+    """Log in to NASA Earthdata from ~/.netrc, falling back to an interactive prompt."""
     import earthaccess
 
     return earthaccess.login(strategy="netrc") or earthaccess.login(strategy="interactive")
 
 
-def search(start: str, end: str, short_name: str = AOP, max_cloud: float | None = None, limit: int | None = None):
+def search(
+    start: str, end: str, short_name: str = AOP, max_cloud: float | None = None, limit: int | None = None
+):
     """earthaccess search over the study-area bbox. `max_cloud` filters on the granule-wide cloud cover."""
     import earthaccess
 
-    kw = dict(short_name=short_name, bounding_box=tuple(config.load("study_area")["bbox"]), temporal=(start, end))
+    kw = dict(
+        short_name=short_name, bounding_box=tuple(config.load("study_area")["bbox"]), temporal=(start, end)
+    )
     if max_cloud is not None:
         kw["cloud_cover"] = (0, max_cloud)
     if limit:
@@ -61,6 +69,7 @@ def search(start: str, end: str, short_name: str = AOP, max_cloud: float | None 
 
 
 def granule_table(results) -> pd.DataFrame:
+    """Flatten Earthdata search results into a table (granule name, time, cloud cover, bounding box, size)."""
     rows = []
     for g in results:
         umm = g["umm"]
@@ -78,6 +87,7 @@ def granule_table(results) -> pd.DataFrame:
 
 
 # ---------- reading ----------
+
 
 def _read(ds, sl=None) -> np.ndarray:
     """Read an HDF5 dataset applying _FillValue, scale_factor and add_offset."""
@@ -112,8 +122,14 @@ def read_subset(src, bbox, variables=("Rrs",)) -> dict | None:
             return None
         rows, cols = np.where(inside.any(axis=1))[0], np.where(inside.any(axis=0))[0]
         r0, r1, c0, c1 = rows.min(), rows.max() + 1, cols.min(), cols.max() + 1
-        out = {"lat": lat[r0:r1, c0:c1], "lon": lon[r0:r1, c0:c1], "flags": None, "wavelength": None,
-               "flag_table": None, "product_version": None}
+        out = {
+            "lat": lat[r0:r1, c0:c1],
+            "lon": lon[r0:r1, c0:c1],
+            "flags": None,
+            "wavelength": None,
+            "flag_table": None,
+            "product_version": None,
+        }
         pv = f.attrs.get("processing_version") or f.attrs.get("product_version")
         if pv is not None:
             out["product_version"] = pv.decode() if isinstance(pv, bytes) else str(pv)
@@ -141,6 +157,7 @@ def granule_time(name: str) -> pd.Timestamp | None:
 
 
 # ---------- extraction ----------
+
 
 def _water_valid(sub: dict, ref_idx: int | None):
     """water = not land; valid = water and passes the NASA standard mask and has a finite value."""
@@ -178,8 +195,13 @@ def pixel_budget(sub: dict, zones: dict | None = None) -> pd.DataFrame:
         x0, y0, x1, y1 = z["geometry"].bounds
         inz = (sub["lon"] >= x0) & (sub["lon"] <= x1) & (sub["lat"] >= y0) & (sub["lat"] <= y1)
         n_water, n_good = int((inz & water).sum()), int((inz & good).sum())
-        row = {"zone": zid, "bay": z["bay"], "n_water": n_water, "n_good": n_good,
-               "frac_good": n_good / n_water if n_water else np.nan}
+        row = {
+            "zone": zid,
+            "bay": z["bay"],
+            "n_water": n_water,
+            "n_good": n_good,
+            "frac_good": n_good / n_water if n_water else np.nan,
+        }
         row.update(flags.flag_fractions(fl, inz & water, table=tb) if fl is not None else {})
         if "Rrs" in sub and wl is not None and n_good:
             for b in BLUE_WL:
@@ -204,20 +226,33 @@ def zone_spectra(sub: dict, granule: str, zones: dict | None = None) -> pd.DataF
         inz = (sub["lon"] >= x0) & (sub["lon"] <= x1) & (sub["lat"] >= y0) & (sub["lat"] <= y1)
         n_water, n_valid = int((inz & water).sum()), int((inz & valid).sum())
         diag = {c: budget.loc[zid, c] for c in budget.columns if c.startswith("frac_")}
-        base = {"time": t, "granule": granule, "product_version": sub.get("product_version"), "zone": zid,
-                "bay": z["bay"], "n_water": n_water, "n_valid": n_valid,
-                "valid_frac": n_valid / n_water if n_water else 0.0, **diag}
+        base = {
+            "time": t,
+            "granule": granule,
+            "product_version": sub.get("product_version"),
+            "zone": zid,
+            "bay": z["bay"],
+            "n_water": n_water,
+            "n_valid": n_valid,
+            "valid_frac": n_valid / n_water if n_water else 0.0,
+            **diag,
+        }
         if n_valid == 0 or "Rrs" not in sub:
-            rows.append({**base, "wavelength": np.nan, "rrs_median": np.nan, "rrs_p25": np.nan, "rrs_p75": np.nan})
+            rows.append(
+                {**base, "wavelength": np.nan, "rrs_median": np.nan, "rrs_p25": np.nan, "rrs_p75": np.nan}
+            )
             continue
         spec = sub["Rrs"][inz & valid]  # (n_pixels, n_bands)
         q25, med, q75 = np.nanpercentile(spec, [25, 50, 75], axis=0)
         for k, w in enumerate(wl):
-            rows.append({**base, "wavelength": float(w), "rrs_median": med[k], "rrs_p25": q25[k], "rrs_p75": q75[k]})
+            rows.append(
+                {**base, "wavelength": float(w), "rrs_median": med[k], "rrs_p25": q25[k], "rrs_p75": q75[k]}
+            )
     return pd.DataFrame(rows)
 
 
 def _dist_km(lat, lon, lat0, lon0):
+    """Approximate distance in km between a pixel and a station (equirectangular)."""
     k = np.cos(np.radians(lat0))
     return 111.2 * np.hypot(lat - lat0, (lon - lon0) * k)
 
@@ -242,26 +277,53 @@ def station_values(sub: dict, granule: str, stations: pd.DataFrame | None = None
             continue
         ref = np.where(water, ref, np.nan)
         ws = matchup.window_stats(ref, r, c)
-        base = {"time": t, "granule": granule, "station": s.station, "dist_km": round(dist, 2),
-                "n_valid": ws["n_valid"], "passed": ws["passed"]}
+        base = {
+            "time": t,
+            "granule": granule,
+            "station": s.station,
+            "dist_km": round(dist, 2),
+            "n_valid": ws["n_valid"],
+            "passed": ws["passed"],
+        }
         r0, r1, c0, c1 = max(r - 1, 0), r + 2, max(c - 1, 0), c + 2
         chl = float(np.nanmedian(sub["chlor_a"][r0:r1, c0:c1])) if "chlor_a" in sub else np.nan
         if ref_idx is not None:
             spec = np.nanmedian(sub["Rrs"][r0:r1, c0:c1, :].reshape(-1, len(wl)), axis=0)
-            unc = (np.nanmedian(sub["Rrs_unc"][r0:r1, c0:c1, :].reshape(-1, len(wl)), axis=0)
-                   if "Rrs_unc" in sub else np.full(len(wl), np.nan))
+            unc = (
+                np.nanmedian(sub["Rrs_unc"][r0:r1, c0:c1, :].reshape(-1, len(wl)), axis=0)
+                if "Rrs_unc" in sub
+                else np.full(len(wl), np.nan)
+            )
             for k, w in enumerate(wl):
-                rows.append({**base, "wavelength": float(w), "rrs": spec[k], "rrs_unc": unc[k], "chlor_a": chl,
-                             "product_version": sub.get("product_version")})
+                rows.append(
+                    {
+                        **base,
+                        "wavelength": float(w),
+                        "rrs": spec[k],
+                        "rrs_unc": unc[k],
+                        "chlor_a": chl,
+                        "product_version": sub.get("product_version"),
+                    }
+                )
         else:
-            rows.append({**base, "wavelength": np.nan, "rrs": np.nan, "rrs_unc": np.nan, "chlor_a": chl,
-                         "product_version": sub.get("product_version")})
+            rows.append(
+                {
+                    **base,
+                    "wavelength": np.nan,
+                    "rrs": np.nan,
+                    "rrs_unc": np.nan,
+                    "chlor_a": chl,
+                    "product_version": sub.get("product_version"),
+                }
+            )
     return pd.DataFrame(rows)
 
 
 # ---------- drivers ----------
 
+
 def _process_one(src, name, bbox, variables, out_z, out_s):
+    """Read one granule's bay subset and append its zone and station tables; False if the granule has no bay pixels."""
     sub = read_subset(src, bbox, variables)
     if sub is None:
         return False
@@ -271,13 +333,16 @@ def _process_one(src, name, bbox, variables, out_z, out_s):
 
 
 def _save(frames, path: Path) -> pd.DataFrame:
+    """Concatenate the per-granule tables and write them to CSV."""
     df = pd.concat([f for f in frames if not f.empty], ignore_index=True) if frames else pd.DataFrame()
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(path, index=False)
     return df
 
 
-def process_files(paths, out_dir="data/processed/pace", variables=("Rrs", "chlor_a")) -> tuple[pd.DataFrame, pd.DataFrame]:
+def process_files(
+    paths, out_dir="data/processed/pace", variables=("Rrs", "chlor_a")
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Local PACE L2 files (AOP and/or BGC)."""
     bbox = config.load("study_area")["bbox"]
     zs, ss = [], []
@@ -288,8 +353,14 @@ def process_files(paths, out_dir="data/processed/pace", variables=("Rrs", "chlor
     return _save(zs, out / "zone_spectra.csv"), _save(ss, out / "station_values.csv")
 
 
-def process(start: str, end: str, short_name: str = AOP, max_cloud: float | None = 80, limit: int | None = None,
-            out_dir="data/processed/pace") -> tuple[pd.DataFrame, pd.DataFrame]:
+def process(
+    start: str,
+    end: str,
+    short_name: str = AOP,
+    max_cloud: float | None = 80,
+    limit: int | None = None,
+    out_dir="data/processed/pace",
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Search, open each granule remotely, read the bay subset, write the tables. Saves progress every 10 granules."""
     import earthaccess
 
@@ -324,6 +395,7 @@ def process(start: str, end: str, short_name: str = AOP, max_cloud: float | None
             try:
                 if ACCESS_MODE == "download":
                     import tempfile
+
                     with tempfile.TemporaryDirectory(prefix="pace_") as td:
                         local = earthaccess.download([g], td)[0]
                         ok = _process_one(local, name, bbox, variables, zs, ss)
@@ -334,7 +406,9 @@ def process(start: str, end: str, short_name: str = AOP, max_cloud: float | None
                 break
             except (OSError, IOError, RuntimeError, KeyError, ValueError) as err:
                 if attempt < RETRIES:
-                    log.warning("%s attempt %d failed (%s); retrying in %ds", name, attempt, err, RETRY_WAIT_S)
+                    log.warning(
+                        "%s attempt %d failed (%s); retrying in %ds", name, attempt, err, RETRY_WAIT_S
+                    )
                     time.sleep(RETRY_WAIT_S)
                 else:
                     print(f"[{i}/{len(results)}] ✗ {name}: {err}")

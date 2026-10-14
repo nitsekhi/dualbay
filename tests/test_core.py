@@ -40,14 +40,38 @@ def test_matchups_window_and_footprint(tmp_path):
     scenes = pd.DataFrame(
         [
             # 09:30 JST = 00:30 UTC, footprint covers Tokyo Bay → matches the 09:00 and 10:00 obs, nearest wins
-            {"sensor": "s3_olci", "scene_id": "A", "time": "2025-07-14T00:30:00Z", "cloud_pct": 5,
-             "lon_min": 139.0, "lat_min": 34.5, "lon_max": 140.5, "lat_max": 36.0},
+            {
+                "sensor": "s3_olci",
+                "scene_id": "A",
+                "time": "2025-07-14T00:30:00Z",
+                "cloud_pct": 5,
+                "lon_min": 139.0,
+                "lat_min": 34.5,
+                "lon_max": 140.5,
+                "lat_max": 36.0,
+            },
             # footprint over the Pacific only → no station inside
-            {"sensor": "s3_olci", "scene_id": "B", "time": "2025-07-14T00:30:00Z", "cloud_pct": 5,
-             "lon_min": 141.0, "lat_min": 30.0, "lon_max": 142.0, "lat_max": 31.0},
+            {
+                "sensor": "s3_olci",
+                "scene_id": "B",
+                "time": "2025-07-14T00:30:00Z",
+                "cloud_pct": 5,
+                "lon_min": 141.0,
+                "lat_min": 30.0,
+                "lon_max": 142.0,
+                "lat_max": 31.0,
+            },
             # a day later → outside ±3 h
-            {"sensor": "pace_oci", "scene_id": "C", "time": "2025-07-16T03:00:00Z", "cloud_pct": 5,
-             "lon_min": 139.0, "lat_min": 34.5, "lon_max": 140.5, "lat_max": 36.0},
+            {
+                "sensor": "pace_oci",
+                "scene_id": "C",
+                "time": "2025-07-16T03:00:00Z",
+                "cloud_pct": 5,
+                "lon_min": 139.0,
+                "lat_min": 34.5,
+                "lon_max": 140.5,
+                "lat_max": 36.0,
+            },
         ]
     )
     m = matchup.find_matchups(obs, scenes, window_h=3, params=["chl", "turbidity", "do"])

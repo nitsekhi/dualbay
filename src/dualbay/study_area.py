@@ -34,6 +34,7 @@ def clip_to_water(zs: dict[str, dict], land) -> dict[str, dict]:
 
 
 def to_geojson(zs: dict[str, dict], path: str | Path) -> Path:
+    """Write the zones as a GeoJSON FeatureCollection and return the path."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fc = {

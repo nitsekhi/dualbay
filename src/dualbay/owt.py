@@ -25,14 +25,23 @@ def normalise(df: pd.DataFrame, wl_range=(400, 720)) -> tuple[np.ndarray, list[s
     if len(cols) < 4:
         raise ValueError("need at least 4 bands in range")
     x = df[cols].to_numpy(dtype=float)
-    x = np.where(x < 0, 0, x)                       # negative Rrs carry no shape information
-    area = np.trapezoid(x, [float(c[4:]) for c in cols], axis=1) if hasattr(np, "trapezoid") else np.trapz(x, [float(c[4:]) for c in cols], axis=1)
+    x = np.where(x < 0, 0, x)  # negative Rrs carry no shape information
+    area = (
+        np.trapezoid(x, [float(c[4:]) for c in cols], axis=1)
+        if hasattr(np, "trapezoid")
+        else np.trapz(x, [float(c[4:]) for c in cols], axis=1)
+    )
     with np.errstate(divide="ignore", invalid="ignore"):
         xn = x / area[:, None]
     return xn, cols
 
 
 class OWTScheme:
+    """Optical water types by k-means on normalised spectra, with k chosen by silhouette score.
+
+    After `fit_thresholds`, `predict` also flags spectra that are far from every cluster centre (novel types).
+    """
+
     def __init__(self, k_min: int = 3, k_max: int = 7, seed: int = 0):
         self.k_min, self.k_max, self.seed = k_min, k_max, seed
         self.model: KMeans | None = None
@@ -40,6 +49,7 @@ class OWTScheme:
         self.silhouettes: dict[int, float] = {}
 
     def fit(self, df: pd.DataFrame) -> "OWTScheme":
+        """Cluster the normalised spectra; try k from k_min to k_max and keep the best silhouette."""
         xn, cols = normalise(df)
         ok = np.isfinite(xn).all(axis=1)
         xn = xn[ok]
@@ -57,6 +67,7 @@ class OWTScheme:
 
     @property
     def k(self) -> int:
+        """Number of water types in the fitted scheme."""
         return int(self.model.n_clusters)
 
     def predict(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -71,7 +82,7 @@ class OWTScheme:
             d = self.model.transform(xn[ok])
             dist[ok] = d[np.arange(ok.sum()), lab[ok]]
         thr = self._thresholds()
-        novel = np.array([bool(d > thr.get(l, np.inf)) if l >= 0 else True for l, d in zip(lab, dist)])
+        novel = np.array([bool(d > thr.get(lb, np.inf)) if lb >= 0 else True for lb, d in zip(lab, dist)])
         return pd.DataFrame({"owt": lab, "owt_dist": dist, "owt_novel": novel}, index=df.index)
 
     def _thresholds(self) -> dict[int, float]:
@@ -87,13 +98,15 @@ class OWTScheme:
         ok = np.isfinite(xn).all(axis=1)
         lab = self.model.predict(xn[ok])
         d = self.model.transform(xn[ok])[np.arange(ok.sum()), lab]
-        self._thr = {int(l): float(np.quantile(d[lab == l], q)) for l in np.unique(lab)}
+        self._thr = {int(lb): float(np.quantile(d[lab == lb], q)) for lb in np.unique(lab)}
         return self
 
     def describe(self) -> pd.DataFrame:
         """Centre spectra per OWT (for plotting and for naming the types)."""
         wl = [float(c[4:]) for c in self.cols]
-        return pd.DataFrame(self.model.cluster_centers_.T, index=wl, columns=[f"OWT{i+1}" for i in range(self.k)])
+        return pd.DataFrame(
+            self.model.cluster_centers_.T, index=wl, columns=[f"OWT{i+1}" for i in range(self.k)]
+        )
 
 
 def coverage(train_labels: np.ndarray, test_labels: np.ndarray) -> pd.DataFrame:

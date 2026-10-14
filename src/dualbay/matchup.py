@@ -17,9 +17,18 @@ SURFACE_LAYERS = {None, "surface", "upper"}
 
 
 def stations_frame(stations_cfg: dict | None = None) -> pd.DataFrame:
+    """Station table (id, lat, lon, bay, coord_verified) from `config/stations.yaml`."""
     cfg = stations_cfg or config.load("stations")
-    rows = [{"station": sid, "lat": s["lat"], "lon": s["lon"], "bay": s["bay"], "coord_verified": s["coord_verified"]}
-            for sid, s in cfg["stations"].items()]
+    rows = [
+        {
+            "station": sid,
+            "lat": s["lat"],
+            "lon": s["lon"],
+            "bay": s["bay"],
+            "coord_verified": s["coord_verified"],
+        }
+        for sid, s in cfg["stations"].items()
+    ]
     return pd.DataFrame(rows)
 
 
@@ -56,7 +65,10 @@ def find_matchups(
         has_box = not any(pd.isna(v) for v in (sc.lon_min, sc.lat_min, sc.lon_max, sc.lat_max))
         inside = stations
         if has_box:
-            inside = stations[stations["lon"].between(sc.lon_min, sc.lon_max) & stations["lat"].between(sc.lat_min, sc.lat_max)]
+            inside = stations[
+                stations["lon"].between(sc.lon_min, sc.lon_max)
+                & stations["lat"].between(sc.lat_min, sc.lat_max)
+            ]
         if inside.empty:
             continue
         near = obs[obs["station"].isin(inside["station"]) & (obs["time_utc"] - sc.time).abs().le(win)]
@@ -67,9 +79,15 @@ def find_matchups(
         for r in best.itertuples(index=False):
             out.append(
                 {
-                    "sensor": sc.sensor, "scene_id": sc.scene_id, "scene_time": sc.time,
-                    "station": r.station, "param": r.param, "insitu_time": r.time_utc,
-                    "dt_min": round(r.dt_min, 1), "value": r.value, "unit": r.unit,
+                    "sensor": sc.sensor,
+                    "scene_id": sc.scene_id,
+                    "scene_time": sc.time,
+                    "station": r.station,
+                    "param": r.param,
+                    "insitu_time": r.time_utc,
+                    "dt_min": round(r.dt_min, 1),
+                    "value": r.value,
+                    "unit": r.unit,
                 }
             )
     res = pd.DataFrame(out)
@@ -99,7 +117,14 @@ def window_stats(arr: np.ndarray, row: int, col: int, size: int = 3, max_cv: flo
     win = np.asarray(arr[r0:r1, c0:c1], dtype=float)
     valid = win[np.isfinite(win)]
     n_total = size * size
-    res = {"n_valid": int(valid.size), "n_total": n_total, "mean": np.nan, "median": np.nan, "cv": np.nan, "passed": False}
+    res = {
+        "n_valid": int(valid.size),
+        "n_total": n_total,
+        "mean": np.nan,
+        "median": np.nan,
+        "cv": np.nan,
+        "passed": False,
+    }
     if valid.size < n_total / 2 + 0.5 * (n_total % 2):  # at least half of the window (5 of 9)
         return res
     med, sd = np.median(valid), np.std(valid)

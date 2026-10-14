@@ -23,9 +23,17 @@ COMMON_GRID = list(range(400, 721, 10))  # nm
 
 
 class RFRetrieval:
-    def __init__(self, n_estimators: int = 400, min_samples_leaf: int = 3, use_owt: bool = True, seed: int = 0):
-        self.rf = RandomForestRegressor(n_estimators=n_estimators, min_samples_leaf=min_samples_leaf,
-                                        random_state=seed, n_jobs=-1)
+    """Random-forest retrieval of a water-quality parameter from reflectance (and optionally the optical water type).
+
+    Works in log10 space. The spread of the individual trees gives a per-pixel 68 % prediction interval.
+    """
+
+    def __init__(
+        self, n_estimators: int = 400, min_samples_leaf: int = 3, use_owt: bool = True, seed: int = 0
+    ):
+        self.rf = RandomForestRegressor(
+            n_estimators=n_estimators, min_samples_leaf=min_samples_leaf, random_state=seed, n_jobs=-1
+        )
         self.use_owt = use_owt
         self.feature_names: list[str] = []
 
@@ -43,14 +51,21 @@ class RFRetrieval:
             else:
                 feats.append(np.full(len(df), np.nan))
         x = np.vstack(feats).T
+
         # band ratios that carry most of the Chl-a signal; cheap and robust
         def b(w):
             nearest = wls[np.argmin(np.abs(wls - w))]
             return df[cols[nearest]].to_numpy(float)
+
         with np.errstate(all="ignore"):
-            x = np.column_stack([x, np.log10(np.clip(b(490) / b(555), 1e-3, None)),
-                                 np.log10(np.clip(b(665) / b(555), 1e-3, None)),
-                                 (b(708) - b(665)) / (b(708) + b(665) + 1e-9)])
+            x = np.column_stack(
+                [
+                    x,
+                    np.log10(np.clip(b(490) / b(555), 1e-3, None)),
+                    np.log10(np.clip(b(665) / b(555), 1e-3, None)),
+                    (b(708) - b(665)) / (b(708) + b(665) + 1e-9),
+                ]
+            )
         names = [f"logrrs_{g}" for g in COMMON_GRID] + ["log_490_555", "log_665_555", "ndci"]
         if self.use_owt and "owt" in df:
             x = np.column_stack([x, df["owt"].to_numpy(float)])
@@ -63,6 +78,7 @@ class RFRetrieval:
         return x
 
     def fit(self, df: pd.DataFrame, y) -> "RFRetrieval":
+        """Fit on rows with a positive, finite target; the target is modelled as log10(y)."""
         y = np.asarray(y, float)
         ok = np.isfinite(y) & (y > 0)
         self.rf.fit(self._features(df[ok]), np.log10(y[ok]))
@@ -71,16 +87,20 @@ class RFRetrieval:
     def predict(self, df: pd.DataFrame, q=(0.16, 0.84)) -> pd.DataFrame:
         """y_pred (median of trees), y_lo / y_hi (central 68 %), and the ensemble spread as 'y_sd_log'."""
         x = self._features(df)
-        trees = np.vstack([t.predict(x) for t in self.rf.estimators_])   # (n_trees, n)
+        trees = np.vstack([t.predict(x) for t in self.rf.estimators_])  # (n_trees, n)
         med = np.median(trees, axis=0)
         lo, hi = np.quantile(trees, q[0], axis=0), np.quantile(trees, q[1], axis=0)
-        return pd.DataFrame({"y_pred": 10**med, "y_lo": 10**lo, "y_hi": 10**hi, "y_sd_log": trees.std(axis=0)}, index=df.index)
+        return pd.DataFrame(
+            {"y_pred": 10**med, "y_lo": 10**lo, "y_hi": 10**hi, "y_sd_log": trees.std(axis=0)}, index=df.index
+        )
 
     def importance(self) -> pd.Series:
+        """Feature importances of the fitted forest, highest first."""
         return pd.Series(self.rf.feature_importances_, index=self.feature_names).sort_values(ascending=False)
 
 
 def evaluate(model: RFRetrieval, test: pd.DataFrame) -> dict:
+    """Predict on a test table that has a `y` column and return the accuracy metrics."""
     p = model.predict(test)
     return metrics(test["y"], p["y_pred"], p["y_lo"], p["y_hi"])
 

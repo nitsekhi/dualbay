@@ -19,18 +19,30 @@ Tables written to <out_dir>/powerbi/
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 
 import pandas as pd
 
 from . import db
 
-SEASON = {12: "Winter", 1: "Winter", 2: "Winter", 3: "Spring", 4: "Spring", 5: "Spring",
-          6: "Summer", 7: "Summer", 8: "Summer", 9: "Autumn", 10: "Autumn", 11: "Autumn"}
+SEASON = {
+    12: "Winter",
+    1: "Winter",
+    2: "Winter",
+    3: "Spring",
+    4: "Spring",
+    5: "Spring",
+    6: "Summer",
+    7: "Summer",
+    8: "Summer",
+    9: "Autumn",
+    10: "Autumn",
+    11: "Autumn",
+}
 
 
 def dim_date(start="2019-01-01", end="2029-12-31") -> pd.DataFrame:
+    """Calendar dimension table for Power BI (one row per day, with year, month and fiscal-year columns)."""
     d = pd.DataFrame({"Date": pd.date_range(start, end, freq="D")})
     d["DateKey"] = d["Date"].dt.strftime("%Y%m%d").astype(int)
     d["Year"] = d["Date"].dt.year
@@ -38,23 +50,49 @@ def dim_date(start="2019-01-01", end="2029-12-31") -> pd.DataFrame:
     d["MonthName"] = d["Date"].dt.strftime("%b")
     d["YearMonth"] = d["Date"].dt.strftime("%Y-%m")
     d["Season"] = d["Month"].map(SEASON)
-    d["FiscalYearJP"] = d["Year"].where(d["Month"] >= 4, d["Year"] - 1)   # 年度 starts in April
+    d["FiscalYearJP"] = d["Year"].where(d["Month"] >= 4, d["Year"] - 1)  # 年度 starts in April
     d["IsHypoxiaSeason"] = d["Month"].between(5, 10)
-    return d[["DateKey", "Date", "Year", "Month", "MonthName", "YearMonth", "Season", "FiscalYearJP", "IsHypoxiaSeason"]]
+    return d[
+        [
+            "DateKey",
+            "Date",
+            "Year",
+            "Month",
+            "MonthName",
+            "YearMonth",
+            "Season",
+            "FiscalYearJP",
+            "IsHypoxiaSeason",
+        ]
+    ]
 
 
 def export(db_path: str | Path = db.DEFAULT_PATH, out_dir: str | Path = "data/processed") -> list[Path]:
+    """Read the SQLite store and write the Power BI star schema as CSV files plus `measures.dax`."""
     out = Path(out_dir) / "powerbi"
     out.mkdir(parents=True, exist_ok=True)
     written = []
     with db.connect(db_path) as con:
         tables = {
             "DimDate": dim_date(),
-            "DimStation": db.read(con, "SELECT station_id AS StationKey, name_en AS Station, name_ja AS StationJa, operator, bay AS Bay, zone_id AS ZoneKey, lat AS Lat, lon AS Lon, coord_verified AS CoordVerified FROM station"),
-            "DimZone": db.read(con, "SELECT zone_id AS ZoneKey, bay AS Bay, description AS Description FROM zone"),
-            "DimSensor": db.read(con, "SELECT sensor_id AS SensorKey, name AS Sensor, provider AS Provider, resolution_m AS ResolutionM FROM sensor"),
-            "DimModelRun": db.read(con, "SELECT run_id AS RunKey, model AS Model, tier AS Tier, param AS Param, train_desc AS TrainDesc, created_utc AS CreatedUtc FROM model_run"),
-            "FactInsituDaily": db.read(con, """
+            "DimStation": db.read(
+                con,
+                "SELECT station_id AS StationKey, name_en AS Station, name_ja AS StationJa, operator, bay AS Bay, zone_id AS ZoneKey, lat AS Lat, lon AS Lon, coord_verified AS CoordVerified FROM station",
+            ),
+            "DimZone": db.read(
+                con, "SELECT zone_id AS ZoneKey, bay AS Bay, description AS Description FROM zone"
+            ),
+            "DimSensor": db.read(
+                con,
+                "SELECT sensor_id AS SensorKey, name AS Sensor, provider AS Provider, resolution_m AS ResolutionM FROM sensor",
+            ),
+            "DimModelRun": db.read(
+                con,
+                "SELECT run_id AS RunKey, model AS Model, tier AS Tier, param AS Param, train_desc AS TrainDesc, created_utc AS CreatedUtc FROM model_run",
+            ),
+            "FactInsituDaily": db.read(
+                con,
+                """
                 SELECT station_id AS StationKey,
                        CAST(strftime('%Y%m%d', datetime(time_utc, '+9 hours')) AS INTEGER) AS DateKey,
                        param AS Param,
@@ -62,25 +100,38 @@ def export(db_path: str | Path = db.DEFAULT_PATH, out_dir: str | Path = "data/pr
                             WHEN layer IN ('lower','bottom') THEN 'bottom' ELSE 'middle' END AS LayerGroup,
                        AVG(value) AS MeanValue, MIN(value) AS MinValue, MAX(value) AS MaxValue, COUNT(*) AS N
                 FROM insitu_obs WHERE qc = 'ok'
-                GROUP BY 1,2,3,4"""),
-            "FactSceneZone": db.read(con, """
+                GROUP BY 1,2,3,4""",
+            ),
+            "FactSceneZone": db.read(
+                con,
+                """
                 SELECT z.scene_id AS SceneKey, s.sensor_id AS SensorKey, z.zone_id AS ZoneKey,
                        CAST(strftime('%Y%m%d', datetime(s.time_utc, '+9 hours')) AS INTEGER) AS DateKey,
                        z.n_water AS NWater, z.n_good AS NGood, z.frac_good AS FracGood,
                        z.frac_absaer AS FracAbsAer, z.frac_lowlw AS FracLowLw, z.frac_straylight AS FracStrayLight,
                        z.frac_higlint AS FracGlint, z.frac_cldice AS FracCloud, z.frac_neg_412 AS FracNeg412, z.frac_neg_443 AS FracNeg443
-                FROM zone_scene_stats z JOIN scene s ON s.scene_id = z.scene_id"""),
-            "FactMatchup": db.read(con, """
+                FROM zone_scene_stats z JOIN scene s ON s.scene_id = z.scene_id""",
+            ),
+            "FactMatchup": db.read(
+                con,
+                """
                 SELECT matchup_id AS MatchupKey, scene_id AS SceneKey, sensor_id AS SensorKey, station_id AS StationKey,
                        CAST(strftime('%Y%m%d', datetime(scene_time, '+9 hours')) AS INTEGER) AS DateKey,
                        param AS Param, insitu_value AS InsituValue, dt_min AS DtMin, owt AS OWT, split AS Split
-                FROM v_matchup_wide"""),
-            "FactPrediction": db.read(con, "SELECT run_id AS RunKey, matchup_id AS MatchupKey, y_pred AS Pred, y_lo AS PredLo, y_hi AS PredHi FROM prediction"),
-            "FactMetric": db.read(con, "SELECT run_id AS RunKey, subset AS Subset, n AS N, rmse AS RMSE, mae AS MAE, bias AS Bias, mape AS MAPE, mdsa AS MdSA, r2 AS R2, picp68 AS PICP68 FROM metric"),
+                FROM v_matchup_wide""",
+            ),
+            "FactPrediction": db.read(
+                con,
+                "SELECT run_id AS RunKey, matchup_id AS MatchupKey, y_pred AS Pred, y_lo AS PredLo, y_hi AS PredHi FROM prediction",
+            ),
+            "FactMetric": db.read(
+                con,
+                "SELECT run_id AS RunKey, subset AS Subset, n AS N, rmse AS RMSE, mae AS MAE, bias AS Bias, mape AS MAPE, mdsa AS MdSA, r2 AS R2, picp68 AS PICP68 FROM metric",
+            ),
         }
     for name, df in tables.items():
         p = out / f"{name}.csv"
-        df.to_csv(p, index=False, encoding="utf-8-sig")   # BOM so Excel/Power BI read Japanese correctly
+        df.to_csv(p, index=False, encoding="utf-8-sig")  # BOM so Excel/Power BI read Japanese correctly
         written.append(p)
     p = out / "measures.dax"
     p.write_text(DAX, encoding="utf-8")

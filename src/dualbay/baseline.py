@@ -26,7 +26,9 @@ from scipy.optimize import curve_fit
 
 # ---------- band access ----------
 
+
 def band_columns(df: pd.DataFrame) -> dict[float, str]:
+    """Map wavelength (nm) → column name for every `rrs_<nm>` column in the table."""
     out = {}
     for c in df.columns:
         if isinstance(c, str) and c.startswith("rrs_"):
@@ -50,6 +52,7 @@ def band(df: pd.DataFrame, wl: float, tol: float = 12.0) -> np.ndarray:
 
 # ---------- algorithm forms (x = feature, returns parameter) ----------
 
+
 def _ocx_feature(df):
     """log10 of max blue / green ratio (OC4 form: max(443,490,510)/555)."""
     blues = [band(df, w) for w in (443, 490, 510)]
@@ -59,6 +62,7 @@ def _ocx_feature(df):
 
 
 def ocx_poly(x, a0, a1, a2, a3, a4):
+    """NASA OCx form: log10(Chl) as a 4th-order polynomial of the blue/green band-ratio feature."""
     return 10 ** (a0 + a1 * x + a2 * x**2 + a3 * x**3 + a4 * x**4)
 
 
@@ -72,6 +76,7 @@ def _ci_feature(df):
 
 
 def ci_exp(x, a, b):
+    """NASA colour-index form (Hu et al. 2012): Chl = 10^(a + b·CI), used for clear water."""
     return 10 ** (a + b * x)
 
 
@@ -86,16 +91,19 @@ def _threeband_feature(df):
 
 
 def _ndci_feature(df):
+    """Normalised difference chlorophyll index (Mishra & Mishra 2012): (R708 − R665)/(R708 + R665)."""
     r665, r708 = band(df, 665), band(df, 708)
     with np.errstate(divide="ignore", invalid="ignore"):
         return (r708 - r665) / (r708 + r665)
 
 
 def linear(x, a, b):
+    """y = a + b·x — the simplest recalibratable form for index-based algorithms."""
     return a + b * x
 
 
 def quadratic(x, a, b, c):
+    """y = a + b·x + c·x² — the form used by the 3-band and NDCI algorithms."""
     return a + b * x + c * x**2
 
 
@@ -104,8 +112,8 @@ def nechad(rho_w, A, C):
     return A * rho_w / (1 - rho_w / C)
 
 
-NECHAD_665 = (355.85, 0.1728)      # Nechad et al. 2010, Table 4 (665 nm), g m^-3
-DOGLIOTTI_645 = (228.1, 0.1641)    # FNU
+NECHAD_665 = (355.85, 0.1728)  # Nechad et al. 2010, Table 4 (665 nm), g m^-3
+DOGLIOTTI_645 = (228.1, 0.1641)  # FNU
 DOGLIOTTI_859 = (3078.9, 0.2112)
 
 
@@ -114,21 +122,22 @@ def dogliotti_turbidity(df):
     rho645, rho859 = np.pi * band(df, 645), np.pi * band(df, 859)
     t_red = nechad(rho645, *DOGLIOTTI_645)
     t_nir = nechad(rho859, *DOGLIOTTI_859)
-    w = np.clip((rho645 - 0.05) / (0.07 - 0.05), 0, 1)   # blend between 0.05 and 0.07
+    w = np.clip((rho645 - 0.05) / (0.07 - 0.05), 0, 1)  # blend between 0.05 and 0.07
     return (1 - w) * t_red + w * t_nir
 
 
 # registry: name -> (parameter, feature fn, model fn, published coefficients, bounds for refit)
 ALGORITHMS = {
-    "ocx":     ("chl", _ocx_feature, ocx_poly, OC4V6, None),
-    "ci":      ("chl", _ci_feature, ci_exp, HU2012, None),
-    "3band":   ("chl", _threeband_feature, linear, (0.0, 1.0), None),       # no universal coefficients → tier 2 only
-    "ndci":    ("chl", _ndci_feature, quadratic, (14.039, 86.115, 194.325), None),
-    "nechad":  ("tsm", lambda d: np.pi * band(d, 665), nechad, NECHAD_665, ([0, 0.01], [1e5, 1.0])),
+    "ocx": ("chl", _ocx_feature, ocx_poly, OC4V6, None),
+    "ci": ("chl", _ci_feature, ci_exp, HU2012, None),
+    "3band": ("chl", _threeband_feature, linear, (0.0, 1.0), None),  # no universal coefficients → tier 2 only
+    "ndci": ("chl", _ndci_feature, quadratic, (14.039, 86.115, 194.325), None),
+    "nechad": ("tsm", lambda d: np.pi * band(d, 665), nechad, NECHAD_665, ([0, 0.01], [1e5, 1.0])),
 }
 
 
 # ---------- metrics ----------
+
 
 def metrics(y, yhat, lo=None, hi=None) -> dict:
     """Standard ocean-colour accuracy metrics. Log-space metrics are computed on positive pairs only."""
@@ -146,19 +155,20 @@ def metrics(y, yhat, lo=None, hi=None) -> dict:
         "mae": float(np.mean(np.abs(err))),
         "bias": float(np.mean(err)),
         "mape": float(100 * np.mean(np.abs(err[y != 0] / y[y != 0]))) if np.any(y != 0) else np.nan,
-        "r2": float(1 - np.sum(err**2) / np.sum((y - y.mean())**2)) if n > 1 and np.var(y) > 0 else np.nan,
+        "r2": float(1 - np.sum(err**2) / np.sum((y - y.mean()) ** 2)) if n > 1 and np.var(y) > 0 else np.nan,
     }
     if pos.sum() > 1:
         lr = np.log10(yhat[pos] / y[pos])
-        out["mdsa"] = float(100 * (10 ** np.median(np.abs(lr)) - 1))   # median symmetric accuracy, %
-        out["log_bias"] = float(10 ** np.median(lr))                   # multiplicative bias
+        out["mdsa"] = float(100 * (10 ** np.median(np.abs(lr)) - 1))  # median symmetric accuracy, %
+        out["log_bias"] = float(10 ** np.median(lr))  # multiplicative bias
     if lo is not None and hi is not None:
         lo, hi = np.asarray(lo, float)[ok], np.asarray(hi, float)[ok]
-        out["picp68"] = float(np.mean((y >= lo) & (y <= hi)))           # coverage of the 68 % interval
+        out["picp68"] = float(np.mean((y >= lo) & (y <= hi)))  # coverage of the 68 % interval
     return out
 
 
 # ---------- tiers ----------
+
 
 def apply_standard(df: pd.DataFrame, name: str) -> np.ndarray:
     """Tier 1: published coefficients."""
@@ -181,7 +191,9 @@ def recalibrate(df: pd.DataFrame, y: np.ndarray, name: str):
     try:
         if fn in (ocx_poly, ci_exp):
             # fit in log space so large values do not dominate
-            logfn = lambda xx, *p: np.log10(np.clip(fn(xx, *p), 1e-6, None))
+            def logfn(xx, *p):
+                return np.log10(np.clip(fn(xx, *p), 1e-6, None))
+
             popt, _ = curve_fit(logfn, x[ok], np.log10(y[ok]), p0=coef0, maxfev=20000, **kw)
         else:
             popt, _ = curve_fit(fn, x[ok], y[ok], p0=coef0, maxfev=20000, **kw)
@@ -193,7 +205,7 @@ def recalibrate(df: pd.DataFrame, y: np.ndarray, name: str):
 def run_tiers(train: pd.DataFrame, test: pd.DataFrame, param: str = "chl") -> pd.DataFrame:
     """Evaluate every algorithm of `param` at tier 1 and tier 2. Returns one row per (algorithm, tier)."""
     rows = []
-    for name, (p, *_ ) in ALGORITHMS.items():
+    for name, (p, *_) in ALGORITHMS.items():
         if p != param:
             continue
         if name != "3band":

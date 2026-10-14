@@ -12,8 +12,8 @@ WL = np.arange(400, 721, 5, dtype="float32")
 def _spectrum(kind):
     """Rough shapes: green-peaked turbid eutrophic water vs blue clear water."""
     if kind == "tokyo":
-        return 0.002 + 0.006 * np.exp(-((WL - 565) / 45) ** 2) + 0.0015 * np.exp(-((WL - 700) / 12) ** 2)
-    return 0.006 * np.exp(-((WL - 440) / 60) ** 2) + 0.0005
+        return 0.002 + 0.006 * np.exp(-(((WL - 565) / 45) ** 2)) + 0.0015 * np.exp(-(((WL - 700) / 12) ** 2))
+    return 0.006 * np.exp(-(((WL - 440) / 60) ** 2)) + 0.0005
 
 
 def _make_granule(path, cloudy_sagami=False):

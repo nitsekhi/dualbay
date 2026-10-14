@@ -16,11 +16,33 @@ from __future__ import annotations
 import numpy as np
 
 L2_FLAG_BITS = {
-    "ATMFAIL": 0, "LAND": 1, "PRODWARN": 2, "HIGLINT": 3, "HILT": 4, "HISATZEN": 5,
-    "COASTZ": 6, "STRAYLIGHT": 8, "CLDICE": 9, "COCCOLITH": 10, "TURBIDW": 11,
-    "HISOLZEN": 12, "LOWLW": 14, "CHLFAIL": 15, "NAVWARN": 16, "ABSAER": 17,
-    "MAXAERITER": 19, "MODGLINT": 20, "CHLWARN": 21, "ATMWARN": 22, "OPSHAL": 23, "SEAICE": 24,
-    "NAVFAIL": 25, "FILTER": 26, "BOWTIEDEL": 28, "HIPOL": 29, "PRODFAIL": 30,
+    "ATMFAIL": 0,
+    "LAND": 1,
+    "PRODWARN": 2,
+    "HIGLINT": 3,
+    "HILT": 4,
+    "HISATZEN": 5,
+    "COASTZ": 6,
+    "STRAYLIGHT": 8,
+    "CLDICE": 9,
+    "COCCOLITH": 10,
+    "TURBIDW": 11,
+    "HISOLZEN": 12,
+    "LOWLW": 14,
+    "CHLFAIL": 15,
+    "NAVWARN": 16,
+    "ABSAER": 17,
+    "MAXAERITER": 19,
+    "MODGLINT": 20,
+    "CHLWARN": 21,
+    "ATMWARN": 22,
+    "OPSHAL": 23,
+    "SEAICE": 24,
+    "NAVFAIL": 25,
+    "FILTER": 26,
+    "BOWTIEDEL": 28,
+    "HIPOL": 29,
+    "PRODFAIL": 30,
 }
 # Verified against the PACE OCI L2 flag_meanings string (NASA oceandata-notebooks, 2026):
 # ATMFAIL LAND PRODWARN HIGLINT HILT HISATZEN COASTZ SPARE STRAYLIGHT CLDICE COCCOLITH TURBIDW HISOLZEN SPARE
@@ -30,12 +52,36 @@ L2_FLAG_BITS = {
 # NASA L3 mask minus ABSAER and ATMWARN: absorbing-aerosol pixels are the research object in Tokyo Bay
 # (Higa et al. 2024), so they are kept and reported, not silently removed. Add them back via
 # config/sensors.yaml `mask_extra` for a conservative run.
-STANDARD_MASK = ["ATMFAIL", "LAND", "HIGLINT", "HILT", "HISATZEN", "STRAYLIGHT", "CLDICE",
-                 "COCCOLITH", "HISOLZEN", "LOWLW", "CHLFAIL", "NAVWARN",
-                 "MAXAERITER", "NAVFAIL", "FILTER"]
+STANDARD_MASK = [
+    "ATMFAIL",
+    "LAND",
+    "HIGLINT",
+    "HILT",
+    "HISATZEN",
+    "STRAYLIGHT",
+    "CLDICE",
+    "COCCOLITH",
+    "HISOLZEN",
+    "LOWLW",
+    "CHLFAIL",
+    "NAVWARN",
+    "MAXAERITER",
+    "NAVFAIL",
+    "FILTER",
+]
 WATER_MASK = ["LAND", "CLDICE", "NAVFAIL", "ATMFAIL"]
 # Flags worth reporting per zone as diagnostics (not necessarily masked)
-DIAGNOSTIC_FLAGS = ["ABSAER", "LOWLW", "STRAYLIGHT", "HIGLINT", "TURBIDW", "ATMWARN", "COASTZ", "CLDICE", "OPSHAL"]
+DIAGNOSTIC_FLAGS = [
+    "ABSAER",
+    "LOWLW",
+    "STRAYLIGHT",
+    "HIGLINT",
+    "TURBIDW",
+    "ATMWARN",
+    "COASTZ",
+    "CLDICE",
+    "OPSHAL",
+]
 
 
 def from_file_attrs(flag_meanings: str | None, flag_masks=None) -> dict[str, int]:
@@ -81,8 +127,9 @@ def any_set(flags: np.ndarray, names, table: dict[str, int] | None = None) -> np
     return (np.asarray(flags).astype(np.int64) & bitmask(names, table)) != 0
 
 
-def good_pixels(flags: np.ndarray | None, shape, level: str = "standard", table: dict[str, int] | None = None,
-                extra=()) -> np.ndarray:
+def good_pixels(
+    flags: np.ndarray | None, shape, level: str = "standard", table: dict[str, int] | None = None, extra=()
+) -> np.ndarray:
     """Boolean array of pixels that pass the chosen mask ('standard' or 'water') plus `extra` flag names.
 
     With no flags array (older or custom files) everything is accepted.
@@ -93,10 +140,14 @@ def good_pixels(flags: np.ndarray | None, shape, level: str = "standard", table:
     return ~any_set(flags, names, table)
 
 
-def flag_fractions(flags: np.ndarray, where: np.ndarray, names=DIAGNOSTIC_FLAGS, table: dict[str, int] | None = None) -> dict:
+def flag_fractions(
+    flags: np.ndarray, where: np.ndarray, names=DIAGNOSTIC_FLAGS, table: dict[str, int] | None = None
+) -> dict:
     """Fraction of pixels inside `where` carrying each diagnostic flag."""
     table = table or L2_FLAG_BITS
     n = int(where.sum())
     if n == 0:
         return {f"frac_{k.lower()}": np.nan for k in names}
-    return {f"frac_{k.lower()}": float((is_set(flags, k, table) & where).sum() / n) for k in names if k in table}
+    return {
+        f"frac_{k.lower()}": float((is_set(flags, k, table) & where).sum() / n) for k in names if k in table
+    }

@@ -20,24 +20,46 @@ from .baseline import metrics
 from .models import RFRetrieval
 from .owt import OWTScheme, coverage
 
-SEASONS = {12: "winter", 1: "winter", 2: "winter", 3: "spring", 4: "spring", 5: "spring",
-           6: "summer", 7: "summer", 8: "summer", 9: "autumn", 10: "autumn", 11: "autumn"}
+SEASONS = {
+    12: "winter",
+    1: "winter",
+    2: "winter",
+    3: "spring",
+    4: "spring",
+    5: "spring",
+    6: "summer",
+    7: "summer",
+    8: "summer",
+    9: "autumn",
+    10: "autumn",
+    11: "autumn",
+}
 
 
 def _season(ts: pd.Series) -> pd.Series:
+    """Month → season label (DJF, MAM, JJA, SON)."""
     return ts.dt.month.map(SEASONS)
 
 
 def _fit(train: pd.DataFrame, seed=0) -> RFRetrieval:
+    """Fit the project model on a training table."""
     return RFRetrieval(seed=seed).fit(train, train["y"])
 
 
 def _eval_subsets(model: RFRetrieval, test: pd.DataFrame, by: str | None) -> pd.DataFrame:
+    """Metrics for the whole test set and, if `by` is a column, for each of its groups."""
     p = model.predict(test)
     rows = [{"subset": "all", **metrics(test["y"], p["y_pred"], p["y_lo"], p["y_hi"])}]
     if by and by in test:
         for k, idx in test.groupby(by).groups.items():
-            rows.append({"subset": f"{by}:{k}", **metrics(test.loc[idx, "y"], p.loc[idx, "y_pred"], p.loc[idx, "y_lo"], p.loc[idx, "y_hi"])})
+            rows.append(
+                {
+                    "subset": f"{by}:{k}",
+                    **metrics(
+                        test.loc[idx, "y"], p.loc[idx, "y_pred"], p.loc[idx, "y_lo"], p.loc[idx, "y_hi"]
+                    ),
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -48,7 +70,9 @@ def temporal_holdout(df: pd.DataFrame, train_years, test_year: int) -> pd.DataFr
     train, test = d[d["year"].isin(train_years)], d[d["year"] == test_year]
     if len(train) < 30 or len(test) < 10:
         raise ValueError(f"not enough matchups: train={len(train)}, test={len(test)}")
-    return _eval_subsets(_fit(train), test, "season").assign(experiment=f"train {sorted(train_years)} → test {test_year}")
+    return _eval_subsets(_fit(train), test, "season").assign(
+        experiment=f"train {sorted(train_years)} → test {test_year}"
+    )
 
 
 def static_vs_adaptive(df: pd.DataFrame, train_years, test_year: int, min_new: int = 5) -> pd.DataFrame:
@@ -73,15 +97,25 @@ def static_vs_adaptive(df: pd.DataFrame, train_years, test_year: int, min_new: i
         adaptive = _fit(pd.concat([base, seen])) if len(seen) >= min_new else static
         pa = adaptive.predict(this)
         ms, ma = metrics(this["y"], ps["y_pred"]), metrics(this["y"], pa["y_pred"])
-        rows.append({"month": int(m), "n": len(this), "n_new_used": len(seen),
-                     "rmse_static": ms.get("rmse"), "rmse_adaptive": ma.get("rmse"),
-                     "mdsa_static": ms.get("mdsa"), "mdsa_adaptive": ma.get("mdsa")})
+        rows.append(
+            {
+                "month": int(m),
+                "n": len(this),
+                "n_new_used": len(seen),
+                "rmse_static": ms.get("rmse"),
+                "rmse_adaptive": ma.get("rmse"),
+                "mdsa_static": ms.get("mdsa"),
+                "mdsa_adaptive": ma.get("mdsa"),
+            }
+        )
     out = pd.DataFrame(rows)
     out["gain_pct"] = 100 * (out["rmse_static"] - out["rmse_adaptive"]) / out["rmse_static"]
     return out
 
 
-def spatial_transfer(df: pd.DataFrame, source_bay: str, target_bay: str, scheme: OWTScheme | None = None) -> dict:
+def spatial_transfer(
+    df: pd.DataFrame, source_bay: str, target_bay: str, scheme: OWTScheme | None = None
+) -> dict:
     """Train on source bay, test on target bay. Returns metrics and the OWT coverage table."""
     src, tgt = df[df["bay"] == source_bay].copy(), df[df["bay"] == target_bay].copy()
     if len(src) < 30 or len(tgt) < 10:
@@ -105,7 +139,14 @@ def spatial_transfer(df: pd.DataFrame, source_bay: str, target_bay: str, scheme:
     return res
 
 
-def learning_curve(df: pd.DataFrame, source_bay: str, target_bay: str, sizes=(0, 5, 10, 20, 40, 80), repeats: int = 5, seed: int = 0) -> pd.DataFrame:
+def learning_curve(
+    df: pd.DataFrame,
+    source_bay: str,
+    target_bay: str,
+    sizes=(0, 5, 10, 20, 40, 80),
+    repeats: int = 5,
+    seed: int = 0,
+) -> pd.DataFrame:
     """Fine-tune with n target-bay matchups (n in sizes) and evaluate on the remaining target data.
     Answers 'how many local samples does a new bay need'."""
     rng = np.random.default_rng(seed)

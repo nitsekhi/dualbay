@@ -62,7 +62,7 @@ Time is stored as ISO-8601 UTC. Japanese local time (JST = UTC+9) is derived in 
 - `baseline.recalibrate`: refuses to fit with fewer matchups than coefficients + 3; non-convergence is reported, not swallowed.
 - `transfer.*`: minimum sample sizes enforced; spatial transfer to a bay without data is skipped with a message.
 
-## Known limits (honest list)
+## Known limits
 
 - Station coordinates are approximate until replaced with official values (`coord_verified: false`).
 - `toy_rrs` in the demo is not a radiative-transfer model; it only gives algorithms something physical to recover.
