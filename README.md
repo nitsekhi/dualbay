@@ -2,7 +2,7 @@
 
 Water quality retrieval and digital twin framework for **Tokyo Bay** and **Sagami Bay**
 from PACE OCI hyperspectral imagery and in-situ monitoring data.
-Research project at Yokohama National University (Higa Laboratory), 2026–2029.
+Research project at Yokohama National University, laboratory of Prof. Hiroto Higa, 2026~
 Author: Lilya Javadova. License: MIT.
 
 The package covers the whole path from raw data to results: study-area zones, PACE granule
