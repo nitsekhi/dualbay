@@ -3,7 +3,7 @@
 # (case-insensitive, full-width characters normalised). First match wins, so list
 # specific keywords before generic ones.
 datetime:
-  keywords: ["日時", "観測日時", "年月日時", "datetime", "date_time", "time"]
+  keywords: ["日時", "観測日時", "年月日時", "yyyy/mm/dd", "datetime", "date_time", "time"]
 date:
   keywords: ["年月日", "日付", "date"]
 hour:
@@ -12,6 +12,23 @@ depth:
   keywords: ["水深", "深度", "depth"]   # not 層 (layer): 上層水温 is a temperature column, not a depth column
 station:
   keywords: ["地点", "観測点", "station"]
+# Columns to skip entirely (quality-flag columns are read separately, see flags below)
+ignore:
+  keywords: ["フラグ", "flag", "do(%", "orp", "no."]
+# Per-parameter quality-flag columns (MLIT monitoring posts): value 0 = normal, anything else = flagged
+flags:
+  water_temp: ["水温フラグ"]
+  salinity: ["塩分フラグ"]
+  do: ["doフラグ", "ｄｏフラグ"]
+  chl: ["クロロフィルフラグ"]
+  turbidity: ["濁度フラグ"]
+  ph: ["phフラグ"]
+# Station id from the file name (MLIT monitoring-post exports: 01kemigawa-2025.07-S.csv etc.)
+file_station_patterns:
+  kemigawa: kemigawa_oki
+  kawasaki: kawasaki_island
+  urayasu: urayasu_oki
+  chiba1gou: chiba_port_beacon1
 
 params:
   chl:
@@ -23,7 +40,7 @@ params:
     unit: "FTU"
     valid_range: [0, 1000]
   do:
-    keywords: ["溶存酸素", "do(", "do[", "dissolved oxygen", "do_mg"]
+    keywords: ["溶存酸素", "do(mg", "do[mg", "do(", "do[", "dissolved oxygen", "do_mg"]
     unit: "mg/L"
     valid_range: [0, 20]
   water_temp:

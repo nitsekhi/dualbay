@@ -103,3 +103,33 @@ def test_zones():
     assert study_area.zone_of(139.35, 35.05) == "sagami_open"
     assert study_area.zone_of(139.62, 35.15) == "miura_transition"
     assert study_area.zone_of(141.5, 35.0) is None
+
+
+def test_parse_mlit_monitoring_post_export(tmp_path):
+    """Hourly MLIT export: 層/深度 columns, DO(%) and DO(mg/l), full-width chｌ, per-parameter flag columns, 24:00."""
+    hdr = (
+        "    No,YYYY/MM/DD hh:mm,    層,深度(m),水温(℃),塩分(-),DO(%),DO(mg/l),chｌ(μg/l),濁度(NTU),pH(-),ORP(mv),"
+        "水温フラグ,塩分フラグ,ＤＯフラグ,クロロフィルフラグ,濁度フラグ,pHフラグ,ORPフラグ"
+    )
+    rows = [
+        "1,2025/07/01 00:00,1,1.14,27.55,25.62,156.90,10.73,39.20,4.70,8.54,196.00,0,0,0,0,0,0,0",
+        "2,2025/07/01 00:00,9,12.50,22.10,32.40,12.00,0.85,1.20,6.10,7.80,-50.00,0,0,0,0,0,0,0",
+        "3,2025/07/01 24:00,1,1.12,27.50,25.63,153.20,10.49,35.70,4.80,8.54,197.00,0,0,0,9,0,0,0",
+    ]
+    f = tmp_path / "01kemigawa-2025.07-S.csv"
+    f.write_bytes(("\n".join([hdr] + rows) + "\n").encode("cp932"))
+    df = insitu.parse_many([f])
+    assert set(df["station"]) == {"kemigawa_oki"}
+    assert set(df["param"]) == {
+        "chl",
+        "do",
+        "ph",
+        "salinity",
+        "turbidity",
+        "water_temp",
+    }  # DO(%) and ORP skipped
+    do = df[(df["param"] == "do") & (df["depth_m"] == 1.14)]
+    assert do["value"].iloc[0] == 10.73  # mg/l column, not the % column
+    assert df["time"].max() == pd.Timestamp("2025-07-02 00:00", tz="Asia/Tokyo")  # 24:00 → next day
+    flagged = df[(df["param"] == "chl") & (df["time"] == df["time"].max())]
+    assert flagged["qc"].iloc[0] == "flagged"  # provider flag 9 on chlorophyll

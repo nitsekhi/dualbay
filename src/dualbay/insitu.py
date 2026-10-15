@@ -86,10 +86,11 @@ def find_header_row(raw: pd.DataFrame, cols_cfg: dict, scan: int = 30) -> int:
 def classify_columns(headers: list[str], cols_cfg: dict) -> dict[int, tuple[str, str | None]]:
     """Map column index → (role, layer). Each column gets at most one role."""
     pairs = _keywords(cols_cfg)
+    ignore = [norm(k) for k in cols_cfg.get("ignore", {}).get("keywords", [])]
     out: dict[int, tuple[str, str | None]] = {}
     for i, h in enumerate(headers):
         h_n = norm(h)
-        if not h_n or h_n == "nan":
+        if not h_n or h_n == "nan" or any(k in h_n for k in ignore):
             continue
         for role, kw in pairs:
             if kw and kw in h_n:
@@ -97,6 +98,26 @@ def classify_columns(headers: list[str], cols_cfg: dict) -> dict[int, tuple[str,
                 out[i] = (role, layer)
                 break
     return out
+
+
+def flag_columns(headers: list[str], cols_cfg: dict) -> dict[str, int]:
+    """Map parameter → index of its quality-flag column (MLIT exports: 水温フラグ, クロロフィルフラグ, ...)."""
+    out: dict[str, int] = {}
+    for param, kws in cols_cfg.get("flags", {}).items():
+        for i, h in enumerate(headers):
+            if any(norm(k) in norm(h) for k in kws):
+                out[param] = i
+                break
+    return out
+
+
+def station_from_name(path: str | Path, cols_cfg: dict) -> str:
+    """Station id from the file name: a configured pattern (kemigawa → kemigawa_oki) or the cleaned stem."""
+    stem = Path(path).stem.lower()
+    for pat, sid in cols_cfg.get("file_station_patterns", {}).items():
+        if pat.lower() in stem:
+            return sid
+    return re.sub(r"\W+", "_", Path(path).stem)
 
 
 def _to_float(series: pd.Series) -> pd.Series:
@@ -149,12 +170,16 @@ def parse_file(path: str | Path, station: str | None = None, cols_cfg: dict | No
         _to_float(df.iloc[:, by_role["depth"]]) if "depth" in by_role else pd.Series(np.nan, index=df.index)
     )
 
+    flags = flag_columns(headers, cols_cfg)
     frames = []
     for i, (param, layer) in params.items():
         spec = cols_cfg["params"][param]
         vals = _to_float(df.iloc[:, i])
         lo, hi = spec["valid_range"]
         qc = np.where(vals.between(lo, hi), "ok", "out_of_range")
+        if param in flags:  # provider's own quality flag: 0 = normal
+            flagged = _to_float(df.iloc[:, flags[param]]).fillna(0) != 0
+            qc = np.where(flagged & (qc == "ok"), "flagged", qc)
         frames.append(
             pd.DataFrame(
                 {
@@ -179,8 +204,15 @@ def parse_file(path: str | Path, station: str | None = None, cols_cfg: dict | No
 
 def parse_many(paths, station_from_filename: bool = True) -> pd.DataFrame:
     """Parse several files; if a file has no station column, the file stem is used as station id."""
+    cols_cfg = config.load("insitu_columns")
     frames = []
     for p in paths:
         p = Path(p)
-        frames.append(parse_file(p, station=re.sub(r"\W+", "_", p.stem) if station_from_filename else None))
+        frames.append(
+            parse_file(
+                p,
+                station=station_from_name(p, cols_cfg) if station_from_filename else None,
+                cols_cfg=cols_cfg,
+            )
+        )
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()

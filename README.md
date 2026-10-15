@@ -18,7 +18,7 @@ real data arrive.
 |---|---|
 | `src/dualbay/` | the analysis chain (module list below) |
 | `config/` | study-area zones, sensors, stations, header keywords for in-situ files |
-| `tests/` | 12 automated tests, all offline (`pytest`) |
+| `tests/` | 13 automated tests, all offline (`pytest`) |
 | `docs/` | `ARCHITECTURE.md` (data flow, design decisions, limits), `METHODS.md` (methods text) |
 | `prototype/` | 3D prototype of the twin on **synthetic data** |
 | `data/` | raw and processed data (git-ignored) |
@@ -28,7 +28,7 @@ real data arrive.
 ```bash
 python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -e ".[dev,inventory,pace]"
-pytest                                                 # 12 tests, all offline
+pytest                                                 # 13 tests, all offline
 ```
 
 For PACE access, put your NASA Earthdata login in `~/.netrc` (never in the repository):
