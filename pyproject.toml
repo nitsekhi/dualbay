@@ -1,7 +1,7 @@
 [project]
 name = "dualbay"
 version = "0.4.0"
-description = "Water quality retrieval and digital twin for Tokyo Bay and Sagami Bay (YNU, Higa Lab)"
+description = "Water quality retrieval and digital twin for Tokyo Bay and Sagami Bay (Yokohama National University, laboratory of Prof. Hiroto Higa)"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [{name = "Lilya Javadova", email = "javadova-lilya-sw@ynu.jp"}]
