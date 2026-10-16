@@ -22,6 +22,7 @@ from . import config
 
 TZ = "Asia/Tokyo"
 MISSING = {"", "-", "--", "---", "*", "**", "///", "欠測", "欠", "調整中", "点検中", "nan", "NaN", "null"}
+MISSING_NUMERIC = -990.0  # values at or below this are sentinels (MLIT exports use -999.99)
 # Layer words used in Japanese monitoring tables → English labels
 LAYERS = {
     "表層": "surface",
@@ -125,7 +126,8 @@ def _to_float(series: pd.Series) -> pd.Series:
     s = series.astype(str).map(norm)
     s = s.where(~s.isin({norm(m) for m in MISSING}))
     s = s.str.replace(r"[^0-9eE+\-.]", "", regex=True)  # drop flags such as "12.3*"
-    return pd.to_numeric(s, errors="coerce")
+    v = pd.to_numeric(s, errors="coerce")
+    return v.where(v > MISSING_NUMERIC)  # -999.99 and similar sentinels → NaN
 
 
 def _parse_time(df: pd.DataFrame, roles: dict[int, tuple[str, str | None]]) -> pd.Series:

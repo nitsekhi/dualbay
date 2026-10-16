@@ -14,7 +14,7 @@ def test_flags_mask_and_fractions():
     f[1, 1] |= 1 << flags.L2_FLAG_BITS["ABSAER"]
     f[2, 2] |= 1 << flags.L2_FLAG_BITS["TURBIDW"]  # not in the standard mask
     good = flags.good_pixels(f, f.shape, "standard")
-    # ABSAER is deliberately NOT masked (research object in Tokyo Bay); LAND is
+    # ABSAER is deliberately NOT masked (set on nearly every pixel over the bays); LAND is
     assert good.sum() == 15 and not good[0, 0] and good[1, 1] and good[2, 2]
     assert flags.good_pixels(f, f.shape, "standard", extra=("ABSAER",)).sum() == 14
     fr = flags.flag_fractions(f, np.ones((4, 4), bool))
@@ -143,3 +143,88 @@ def test_store_and_export(tmp_path):
     assert {"DimDate.csv", "FactInsituDaily.csv", "FactMetric.csv", "measures.dax"} <= names
     fd = pd.read_csv(tmp_path / "powerbi" / "FactInsituDaily.csv")
     assert fd["MeanValue"].iloc[0] == pytest.approx(20.65)
+
+
+def test_bottom_layer_rule_and_monthly_table():
+    """Fixed sensors at 2 / 11 / 20 m whose reported depth moves with the tide: bottom = deepest within 1.5 m."""
+    t = pd.date_range("2025-07-01", periods=48, freq="h", tz="Asia/Tokyo")
+    rows = []
+    for i, ti in enumerate(t):
+        tide = 0.6 * np.sin(i / 12 * np.pi)
+        for z, do_v, temp in ((2.0, 8.0, 27.0), (11.0, 5.0, 23.0), (20.0, 1.0 + (i % 5) * 0.1, 19.0)):
+            rows.append(("s1", ti, np.nan, z + tide, "do", do_v, "mg/L", "ok"))
+            rows.append(("s1", ti, np.nan, z + tide, "water_temp", temp, "degC", "ok"))
+            rows.append(("s1", ti, np.nan, z + tide, "chl", 20.0, "ug/L", "ok"))
+    ins = pd.DataFrame(rows, columns=["station", "time", "layer", "depth_m", "param", "value", "unit", "qc"])
+    daily = lag.daily_series(ins)
+    assert len(daily) == 2
+    assert daily["do_bottom"].between(1.0, 1.5).all() and daily["do_surface"].eq(8.0).all()
+    assert daily["stratification"].eq(8.0).all()
+    mb = lag.monthly_bottom(ins)
+    assert mb.loc[0, "pct_below_2"] == 100 and mb.loc[0, "pct_below_3"] == 100 and mb.loc[0, "hours"] == 48
+    summ = lag.station_summary(daily)
+    assert summ.loc[0, "days_below_2"] == 2
+
+
+def test_rededge_indices_and_cross_validation():
+    from dualbay import rededge
+
+    rng = np.random.default_rng(1)
+    n = 60
+    chl = 10 ** rng.uniform(0.5, 1.8, n)
+    ndci = 0.4 * (np.log10(chl) - 1.2) + rng.normal(0, 0.05, n)  # a red edge that tracks chlorophyll
+    r665 = 0.002 * np.ones(n)
+    r709 = r665 * (1 + ndci) / (1 - ndci)
+    t = pd.date_range("2025-07-01 03:00", periods=n, freq="D", tz="UTC")
+    stations = np.array(["a", "b", "c"])[np.arange(n) % 3]
+    long = []
+    for i in range(n):
+        for nm, v in (
+            (443, 0.004),
+            (490, 0.0045),
+            (510, 0.004),
+            (560, 0.005),
+            (620, 0.003),
+            (665, r665[i]),
+            (681, 0.0022),
+            (709, r709[i]),
+            (719, 0.0015),
+        ):
+            long.append((t[i], f"g{i}", stations[i], 0.5, 9, True, float(nm), v, 0.5 * v))
+    sv = pd.DataFrame(
+        long,
+        columns=[
+            "time",
+            "granule",
+            "station",
+            "dist_km",
+            "n_valid",
+            "passed",
+            "wavelength",
+            "rrs",
+            "rrs_unc",
+        ],
+    )
+    sp = rededge.indices(rededge.window_spectra(sv))
+    assert len(sp) == n and np.allclose(sp["ndci"], ndci, atol=1e-9) and sp["ndci_unc"].gt(0).all()
+    ins = pd.DataFrame(
+        {
+            "station": np.repeat(stations, 3),
+            "time": np.repeat(t, 3) + pd.to_timedelta(np.tile([-1, 0, 1], n), unit="h"),
+            "layer": np.nan,
+            "depth_m": 1.0,
+            "param": "chl",
+            "value": np.repeat(chl, 3),
+            "unit": "ug/L",
+            "qc": "ok",
+        }
+    )
+    m = rededge.matchups(sp, ins, window_h=1.5)
+    assert len(m) == n
+    table, m2 = rededge.evaluate(m)
+    loso = table[table["estimate"].str.startswith("ndci, local linear fit, leave-one-station")].iloc[0]
+    control = table[table["estimate"].str.startswith("control")].iloc[0]
+    assert loso["mdsa_pct"] < control["mdsa_pct"] and loso["r2_log"] > 0.8
+    assert table.attrs["correlation_with_log_chl"]["ndci"] > 0.9
+    rel = rededge.relative_uncertainty(sv)
+    assert np.allclose(rel["median"], 0.5)

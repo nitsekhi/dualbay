@@ -9,7 +9,7 @@ reads only the rows/columns that cover the study area, so nothing big is downloa
 Local .nc files work too (`process_files`).
 
 Output (long tables, CSV):
-  zone_spectra.csv     time | granule | zone | bay | n_water | n_valid | valid_frac | wavelength | rrs_median | rrs_p25 | rrs_p75
+  zone_spectra.csv     time | granule | zone | bay | n_water | n_valid | valid_frac | wavelength | rrs_median | rrs_p25 | rrs_p75 | rrs_unc_median
   station_values.csv   time | granule | station | dist_km | n_valid | passed | wavelength | rrs | chlor_a
 """
 
@@ -244,9 +244,21 @@ def zone_spectra(sub: dict, granule: str, zones: dict | None = None) -> pd.DataF
             continue
         spec = sub["Rrs"][inz & valid]  # (n_pixels, n_bands)
         q25, med, q75 = np.nanpercentile(spec, [25, 50, 75], axis=0)
+        unc = (
+            np.nanmedian(sub["Rrs_unc"][inz & valid], axis=0)
+            if "Rrs_unc" in sub
+            else np.full(len(wl), np.nan)
+        )
         for k, w in enumerate(wl):
             rows.append(
-                {**base, "wavelength": float(w), "rrs_median": med[k], "rrs_p25": q25[k], "rrs_p75": q75[k]}
+                {
+                    **base,
+                    "wavelength": float(w),
+                    "rrs_median": med[k],
+                    "rrs_p25": q25[k],
+                    "rrs_p75": q75[k],
+                    "rrs_unc_median": unc[k],
+                }
             )
     return pd.DataFrame(rows)
 

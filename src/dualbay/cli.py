@@ -4,6 +4,9 @@ dualbay study-area   [--coastline land.geojson] [--out data/processed/study_area
 dualbay parse-insitu FILE [FILE ...] [--station ID] [--out data/processed/insitu.csv]
 dualbay inventory    --start 2024-03-01 --end 2026-09-30 [--sensors s3_olci pace_oci] [--out ...]
 dualbay matchups     --insitu data/processed/insitu.csv --scenes data/processed/scenes.csv [--out ...]
+dualbay pace         --start 2025-06-01 --end 2025-09-30 [--product aop|bgc] [--max-cloud 70]
+dualbay rededge      [--pace-dir data/processed/pace] [--insitu data/processed/insitu.csv] [--out results/rededge]
+dualbay lag          --insitu data/processed/insitu.csv [--threshold 2] [--mark "blue tide=2025-09-16"]
 """
 
 from __future__ import annotations
@@ -171,7 +174,7 @@ def cmd_analyze(a):
 
 
 def cmd_lag(a):
-    """`dualbay lag`: surface chlorophyll vs bottom oxygen lags, hypoxia events and lead times."""
+    """`dualbay lag`: bottom oxygen from the posts — daily series, monthly table, events, lags, figure."""
     from . import lag
 
     ins = pd.read_csv(a.insitu, parse_dates=["time"])
@@ -179,11 +182,27 @@ def cmd_lag(a):
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     daily.to_csv(out / "daily_series.csv", index=False)
+    lag.monthly_bottom(ins).to_csv(out / "bottom_do_monthly.csv", index=False)
     lag.lagged_correlation(daily).to_csv(out / "lag_correlation.csv", index=False)
     ev = lag.hypoxia_events(daily, a.threshold)
     ev.to_csv(out / "hypoxia_events.csv", index=False)
     lag.event_lead_time(daily, ev).to_csv(out / "event_lead_time.csv", index=False)
-    print(f"{len(ev)} hypoxia events (< {a.threshold} mg/L); results in {out}")
+    summary = lag.station_summary(daily, a.threshold)
+    summary.to_csv(out / "station_summary.csv", index=False)
+    marks = dict(m.split("=", 1) for m in a.mark) if a.mark else None
+    lag.figure_bottom(daily, summary, out / "bottom.png", marks)
+    print(summary.to_string(index=False))
+    print(f"{len(ev)} events below {a.threshold:g} mg/L; results in {out}")
+
+
+def cmd_rededge(a):
+    """`dualbay rededge`: red-edge indices from the station windows against station chlorophyll."""
+    from . import rededge
+
+    res = rededge.run(a.pace_dir, a.insitu, a.out, a.window)
+    print(f"{res['n']} matchups; correlation with log10 Chl: {res['correlation']}")
+    print(res["metrics"].to_string(index=False))
+    print(f"Figure → {res['figure']}")
 
 
 def cmd_export(a):
@@ -269,11 +288,23 @@ def main(argv=None):
     s.add_argument("--out", default="results")
     s.set_defaults(func=cmd_analyze)
 
-    s = sub.add_parser("lag", help="RQ3 groundwork: surface Chl-a vs bottom DO lags and hypoxia events")
+    s = sub.add_parser("lag", help="Bottom oxygen from the posts: monthly table, events, Chl→DO lags, figure")
     s.add_argument("--insitu", required=True)
-    s.add_argument("--threshold", type=float, default=3.0)
+    s.add_argument("--threshold", type=float, default=2.0, help="mg/L for events and day counts (default 2)")
+    s.add_argument(
+        "--mark", nargs="*", default=[], metavar="LABEL=YYYY-MM-DD", help="dates to mark on the figure"
+    )
     s.add_argument("--out", default="results/lag")
     s.set_defaults(func=cmd_lag)
+
+    s = sub.add_parser(
+        "rededge", help="Red-edge test: NDCI and other indices from station windows vs station Chl-a"
+    )
+    s.add_argument("--pace-dir", default=PROCESSED / "pace")
+    s.add_argument("--insitu", default=PROCESSED / "insitu.csv")
+    s.add_argument("--window", type=float, default=1.5, help="hours around the overpass (default 1.5)")
+    s.add_argument("--out", default="results/rededge")
+    s.set_defaults(func=cmd_rededge)
 
     s = sub.add_parser("export", help="Power BI star schema + DAX measures")
     s.add_argument("--db", default="data/dualbay.sqlite")

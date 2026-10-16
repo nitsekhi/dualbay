@@ -18,7 +18,7 @@ real data arrive.
 |---|---|
 | `src/dualbay/` | the analysis chain (module list below) |
 | `config/` | study-area zones, sensors, stations, header keywords for in-situ files |
-| `tests/` | 13 automated tests, all offline (`pytest`) |
+| `tests/` | 15 automated tests, all offline (`pytest`) |
 | `docs/` | `ARCHITECTURE.md` (data flow, design decisions, limits), `METHODS.md` (methods text) |
 | `prototype/` | 3D prototype of the twin on **synthetic data** |
 | `data/` | raw and processed data (git-ignored) |
@@ -28,7 +28,7 @@ real data arrive.
 ```bash
 python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -e ".[dev,inventory,pace]"
-pytest                                                 # 13 tests, all offline
+pytest                                                 # 15 tests, all offline
 ```
 
 For PACE access, put your NASA Earthdata login in `~/.netrc` (never in the repository):
@@ -90,10 +90,14 @@ dualbay load --insitu data/processed/insitu.csv --scenes data/processed/scenes.c
 # 2. baselines (tier 1–2), uncertainty model (tier 3), temporal + spatial transfer → results/
 dualbay analyze --param chl --train-bay tokyo
 
-# 3. RQ3 groundwork from in-situ alone: chl → bottom DO lags, hypoxia events, lead times
-dualbay lag --insitu data/processed/insitu.csv
+# 3. red-edge test on the station windows: NDCI and other indices vs station chlorophyll,
+#    cross-validated, with NASA chlor_a on the same windows and Rrs_unc/Rrs by wavelength
+dualbay rededge --pace-dir data/processed/pace --insitu data/processed/insitu.csv
 
-# 4. Power BI star schema + measures → data/processed/powerbi/
+# 4. bottom oxygen from the posts: monthly table, hypoxia events, chl → DO lags, stratification, figure
+dualbay lag --insitu data/processed/insitu.csv --mark "blue tide=2025-09-16"
+
+# 5. Power BI star schema + measures → data/processed/powerbi/
 dualbay export
 
 # 0. no data yet? run the whole chain on synthetic data (≈2 min) → data/demo/
@@ -124,7 +128,8 @@ src/dualbay/
   owt.py               optical water types (k-means, silhouette), novelty flag, coverage table
   models.py            random-forest retrieval with per-pixel 68 % interval and calibration check
   transfer.py          temporal holdout, static vs adaptive, spatial transfer, learning curve
-  lag.py               surface Chl-a vs bottom DO lags, hypoxia events, lead time, blue-tide index
+  rededge.py           red-edge indices (NDCI, 709/665, FLH) vs station Chl-a; LOSO/LOMO evaluation; Rrs_unc/Rrs
+  lag.py               bottom DO: layer rule, monthly table, hypoxia events, Chl→DO lags, stratification, figure
   export.py            Power BI tables + DAX measures
   demo.py              synthetic end-to-end run
   cli.py               the `dualbay` command
@@ -141,8 +146,15 @@ src/dualbay/
   granule; never mix versions in one analysis.
 - **Spectral range**: the standard L2 reflectance ends at 719 nm. Algorithms that need
   near-infrared bands (3-band, Dogliotti, Nechad-865) require Level-1B processing with ACOLITE.
-- **Flags**: ABSAER (absorbing aerosol) pixels are kept and reported per zone because they are the
-  research object over Tokyo Bay. Use `pace.MASK_EXTRA = ("ABSAER", "ATMWARN")` for a
-  conservative run.
-- The in-situ parser keeps only surface/upper-layer values (or depth ≤ 2 m) for matchups;
-  bottom-layer DO stays in the table for the hypoxia work but is not paired with satellite data.
+- **Flags**: the ABSAER (absorbing aerosol) flag is read and reported per zone, but in v3.2 it is set
+  on practically all cloud-free pixels over both bays and is therefore not used as a diagnostic.
+  Use `pace.MASK_EXTRA = ("ABSAER", "ATMWARN")` for a conservative run.
+- **Availability**: the standard chlorophyll product (BGC) masks far more pixels than the reflectance
+  product (AOP) — in summer 2025, 21 vs 106 station matchups. Report availability for both.
+- The in-situ parser keeps every layer; matchups use surface/upper-layer values (or depth ≤ 2 m), the
+  bottom analysis uses the deepest layer within 1.5 m of the station depth. Numeric sentinels such as
+  `-999.99` become missing values.
+- **First real results (summer 2025)** are in `docs/METHODS.md` §6: the standard chlorophyll product
+  underestimates the posts threefold; NDCI from the red edge correlates (r = 0.50) but the red bands sit
+  at the noise floor of the standard product (Rrs_unc/Rrs ≈ 1 at 665 nm); bottom hypoxia at the deep
+  posts is a persistent summer state tied to stratification, not a lagged response to blooms.

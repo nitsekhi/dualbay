@@ -89,6 +89,36 @@ standard, 2.0 / 3.0 / 4.0 mg L⁻¹]; lead time is the interval between the last
 3. Median Rrs spectra per zone on clear days, absolute and shape-normalised — the optical gradient.
 4. Standard chlorophyll-a at monitoring posts vs in-situ — tier-1 accuracy before any modelling.
 
+## 6. First results on real data (summer 2025)
+
+Data: all PACE OCI L2 v3.2 granules over the study area, 1 June – 30 September 2025 (102 AOP, 102 BGC), and the
+hourly checked records of the four MLIT monitoring posts for the same months (`dualbay pace`, `dualbay parse-insitu`).
+
+**Availability.** The inner Tokyo Bay zone had ≥ 20 % valid pixels on 15 of 122 days in the BGC product. At the station
+windows (3×3, ≥ 5 valid, median) the reflectance product passes on 27–31 overpasses per post, the chlorophyll product on
+6–10: 106 vs 21 station matchups within ±1.5 h. Availability is therefore reported for both products.
+
+**Standard chlorophyll.** NASA `chlor_a` is about one third of the posts' fluorometric chlorophyll (median ratio 0.34–0.35,
+MdSA ≈ 183–198 % depending on the filters, no correlation) and misses bloom days. Midday fluorescence quenching is not the
+cause: the posts' noon/night ratio is 1.06.
+
+**Red edge (`dualbay rededge`).** NDCI = (Rrs709 − Rrs665)/(Rrs709 + Rrs665) correlates with log10 chlorophyll (r ≈ 0.50);
+the blue–green ratio does not (r ≈ −0.14). Recalibrated locally and tested leave-one-station-out, NDCI gives MdSA ≈ 50 %
+and bias ≈ −10 % against 183 % / −65 % for `chlor_a` on the same windows, but only ~10 points better than the constant
+control (seasonal median of the other stations, ≈ 61 %); blooms > 30 µg/L are still underestimated by ~40 %. NASA's
+per-pixel uncertainty explains the ceiling: Rrs_unc/Rrs ≈ 0.3–0.7 in the blue–green, ≈ 1.2 at 665 nm and ≈ 0.8 at 709 nm.
+The red edge in the standard product works at the noise floor; Level-1B processing (ACOLITE) is the next test.
+
+**Bottom oxygen (`dualbay lag`).** Bottom layer = deepest sensor within 1.5 m of the station depth, provider-flagged values
+removed. Daily mean bottom DO < 2 mg/L: Chiba Port beacon (21 m) 59 of 73 observed days, Kawasaki Island (21 m) 44 of 122,
+Kemigawa (10 m) 25, Urayasu (5 m) 10; longest uninterrupted episodes 17 and 12 days at the deep posts. Surface chlorophyll
+and bottom DO are weakly related at every lag 0–30 d (|r| ≤ 0.30); the surface–bottom temperature difference explains more
+(r = −0.46 to −0.68 at the stratified posts; ΔT ≈ 8 °C in August at 21 m, < 1 °C at Urayasu). On 15 September the daily
+minimum at Kawasaki reached 0.29 mg/L, one day before the blue tide reported by Chiba Prefecture. Interpretation: summer
+hypoxia in the inner bay is a persistent state sustained by the organic load and sealed by stratification; the visible
+events are its release to the surface by wind. For RQ3 the satellite constrains the load, while event timing requires wind
+and mixing (JMA AMeDAS added to the data plan).
+
 ## References (short)
 Bailey & Werdell 2006, RSE 102:12 · Higa et al. 2024, Remote Sensing 16:3626 · Hu, Lee & Franz 2012, JGR 117 ·
 Mishra & Mishra 2012, RSE 117:394 · Morley, Brito & Welling 2018, Space Weather 16:69 · Nechad et al. 2010, RSE 114:854 ·

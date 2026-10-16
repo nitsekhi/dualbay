@@ -6,9 +6,12 @@ Bit layout follows the NASA Ocean Biology Processing Group convention
   STANDARD_MASK  the OBPG Level-3 mask: pixels the agency itself would not trust
   WATER_MASK     the minimum: land, clouds, navigation failures
 
-Why this matters for the project: the fraction of pixels flagged ABSAER (absorbing aerosol),
-LOWLW (low water-leaving radiance) and STRAYLIGHT per zone is a direct diagnostic of the
-atmospheric-correction problem described for Tokyo Bay by Higa et al. (2024).
+Why this matters for the project: the per-zone fractions of LOWLW (low water-leaving radiance),
+STRAYLIGHT and negative reflectance diagnose the atmospheric-correction problem described for
+Tokyo Bay by Higa et al. (2024). ABSAER (absorbing aerosol) was meant to be the main diagnostic,
+but in the v3.2 data of summer 2025 it is set on practically every cloud-free pixel over both bays —
+l2gen can set it from the MERRA-2 absorbing-aerosol optical depth, a regional background rather than
+a per-pixel test — so it is kept and reported but not used as a diagnostic.
 """
 
 from __future__ import annotations
@@ -49,7 +52,7 @@ L2_FLAG_BITS = {
 # LOWLW CHLFAIL NAVWARN ABSAER SPARE MAXAERITER MODGLINT CHLWARN ATMWARN OPSHAL SEAICE NAVFAIL FILTER SPARE
 # BOWTIEDEL HIPOL PRODFAIL SPARE
 
-# NASA L3 mask minus ABSAER and ATMWARN: absorbing-aerosol pixels are the research object in Tokyo Bay
+# NASA L3 mask minus ABSAER and ATMWARN: masking ABSAER would remove nearly the whole bay (see module docstring)
 # (Higa et al. 2024), so they are kept and reported, not silently removed. Add them back via
 # config/sensors.yaml `mask_extra` for a conservative run.
 STANDARD_MASK = [
